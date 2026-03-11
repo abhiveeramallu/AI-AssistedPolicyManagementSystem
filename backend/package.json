@@ -1,0 +1,27 @@
+{
+  "name": "secure-access-policy-backend",
+  "version": "1.0.0",
+  "description": "AI-Assisted Secure Access Policy Management System backend",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon --watch src --ignore storage --ignore logs src/server.js",
+    "start": "node src/server.js",
+    "check": "node --check src/server.js",
+    "issue:token": "node scripts/issueDemoToken.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "winston": "^3.15.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}

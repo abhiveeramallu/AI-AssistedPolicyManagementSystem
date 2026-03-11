@@ -1,0 +1,56 @@
+flowchart TB
+  subgraph Presentation["Presentation Layer (React)"]
+    U1["Upload Dropzone"]
+    U2["Policy Recommendation Panel"]
+    U3["Confirm Policy Modal"]
+    U4["Access Control + Token Panel"]
+    U5["Shared Token Access Page"]
+  end
+
+  subgraph Application["Application Layer (Express API)"]
+    A0["CORS + Helmet + Rate Limiter"]
+    A1["Auth Middleware (JWT/User + File Token)"]
+    A2["Policy Controller"]
+    A3["Upload Controller"]
+    A4["File Controller"]
+    A5["Token Controller"]
+  end
+
+  subgraph Security["Security Layer"]
+    S1["RBAC + Least Privilege"]
+    S2["Policy Expiry + Attempt Limits"]
+    S3["AES-256-GCM Encryption + Key Wrapping"]
+  end
+
+  subgraph AI["AI Policy Layer"]
+    I1["Context Analyzer"]
+    I2["Prompt Template"]
+    I3["OpenAI/Fallback Recommendation Engine"]
+  end
+
+  subgraph Data["Data Layer"]
+    D1["Encrypted File Storage"]
+    D2["Local Metadata Store"]
+    D3["Token Logs + Audit Trail"]
+  end
+
+  U1 --> A0
+  U2 --> A0
+  U3 --> A0
+  U4 --> A0
+  U5 --> A0
+  A0 --> A1
+  A1 --> A2
+  A1 --> A3
+  A1 --> A4
+  A1 --> A5
+  A2 --> I1 --> I2 --> I3
+  A2 --> S1
+  A3 --> S3
+  A4 --> S2
+  A5 --> S1
+  S3 --> D1
+  A2 --> D2
+  A3 --> D2
+  A4 --> D2
+  A5 --> D3

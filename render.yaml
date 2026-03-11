@@ -1,0 +1,63 @@
+services:
+  - type: web
+    name: secure-policy-api
+    runtime: node
+    rootDir: backend
+    plan: free
+    autoDeploy: true
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    disk:
+      name: secure-policy-storage
+      mountPath: /opt/render/project/src/backend/storage
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: ACCESS_JWT_SECRET
+        generateValue: true
+      - key: ACCESS_JWT_EXPIRES_IN
+        value: 1h
+      - key: FILE_TOKEN_SECRET
+        generateValue: true
+      - key: FILE_TOKEN_EXPIRES_IN
+        value: 30m
+      - key: MASTER_ENCRYPTION_KEY
+        generateValue: true
+      - key: ENCRYPTED_STORAGE_PATH
+        value: ./storage/encrypted
+      - key: LOCAL_DB_PATH
+        value: ./storage/local-db.json
+      - key: MAX_FILE_SIZE_MB
+        value: "15"
+      - key: ALLOWED_FILE_TYPES
+        value: application/pdf,image/png,image/jpeg,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: OPENAI_API_KEY
+        sync: false
+
+  - type: web
+    name: secure-policy-app
+    runtime: static
+    rootDir: frontend
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./frontend/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: secure-policy-api
+          envVarKey: RENDER_EXTERNAL_URL

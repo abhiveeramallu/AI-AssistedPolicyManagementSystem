@@ -1,0 +1,235 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --ui-bg: #0a0a0a;
+  --ui-bg-gradient: linear-gradient(112deg, #0a0a0a 0%, #1a1a1a 62%, #2a2a2a 100%);
+  --ui-surface: #1a1a1a;
+  --ui-surface-soft: #2a2a2a;
+  --ui-border: #2a2a2a;
+  --ui-border-strong: rgba(255, 255, 255, 0.18);
+  --ui-text: #ffffff;
+  --ui-muted: #bfbfbf;
+  --ui-accent: #bfbfbf;
+  --ui-accent-hover: #ffffff;
+  --ui-shadow: 0 14px 32px rgba(0, 0, 0, 0.48);
+  --ui-glow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 14px 30px rgba(0, 0, 0, 0.5);
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+body {
+  @apply min-h-screen antialiased;
+  background-color: var(--ui-bg);
+  background-image:
+    radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.08), transparent 28%),
+    radial-gradient(circle at 84% 20%, rgba(191, 191, 191, 0.08), transparent 34%),
+    var(--ui-bg-gradient);
+  color: var(--ui-text);
+}
+
+#root {
+  animation: page-enter 420ms ease-out;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer components {
+  .ui-navbar {
+    @apply rounded-xl border px-5 py-5 md:flex md:items-center md:justify-between;
+    border-color: var(--ui-border);
+    background-color: var(--ui-bg);
+    box-shadow: var(--ui-shadow);
+  }
+
+  .ui-card {
+    @apply rounded-xl border p-5;
+    border-color: var(--ui-border);
+    background-color: var(--ui-surface);
+    box-shadow: var(--ui-shadow);
+    transition:
+      transform 200ms ease,
+      box-shadow 200ms ease,
+      border-color 200ms ease,
+      background-color 200ms ease;
+  }
+
+  .ui-card-soft {
+    @apply rounded-lg border p-3;
+    border-color: var(--ui-border);
+    background-color: var(--ui-surface-soft);
+    transition:
+      transform 200ms ease,
+      box-shadow 200ms ease,
+      border-color 200ms ease,
+      background-color 200ms ease;
+  }
+
+  .ui-card:hover,
+  .ui-card-soft:hover {
+    transform: translateY(-2px);
+    border-color: var(--ui-border-strong);
+    box-shadow: var(--ui-glow);
+  }
+
+  .ui-title {
+    @apply font-display tracking-wide;
+    color: var(--ui-text);
+  }
+
+  .ui-text-muted {
+    color: var(--ui-muted);
+  }
+
+  .ui-label {
+    @apply text-sm font-semibold;
+    color: var(--ui-muted);
+  }
+
+  .ui-input {
+    @apply w-full rounded-md border px-3 py-2 text-sm transition placeholder:text-sm focus:outline-none focus:ring-2;
+    border-color: var(--ui-border);
+    background-color: var(--ui-bg);
+    color: var(--ui-text);
+    --tw-ring-color: rgba(255, 255, 255, 0.18);
+    transition:
+      border-color 200ms ease,
+      box-shadow 200ms ease,
+      background-color 200ms ease;
+  }
+
+  .ui-input::placeholder {
+    color: var(--ui-muted);
+  }
+
+  .ui-btn-primary {
+    @apply rounded-md border px-4 py-2 text-sm font-semibold text-white disabled:opacity-60;
+    background-color: #2a2a2a;
+    border-color: #3a3a3a;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.42);
+    transition:
+      background-color 200ms ease,
+      border-color 200ms ease,
+      box-shadow 200ms ease,
+      transform 200ms ease;
+    cursor: pointer;
+  }
+
+  .ui-btn-primary:hover {
+    background-color: #3a3a3a;
+    border-color: rgba(255, 255, 255, 0.28);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 10px 24px rgba(0, 0, 0, 0.52);
+    transform: scale(1.03);
+  }
+
+  .ui-btn-secondary {
+    @apply rounded-md border px-4 py-2 text-sm font-semibold transition disabled:opacity-60;
+    border-color: var(--ui-border);
+    background-color: var(--ui-bg);
+    color: var(--ui-muted);
+    transition:
+      background-color 200ms ease,
+      border-color 200ms ease,
+      color 200ms ease,
+      box-shadow 200ms ease,
+      transform 200ms ease;
+    cursor: pointer;
+  }
+
+  .ui-btn-secondary:hover {
+    background-color: var(--ui-surface);
+    border-color: var(--ui-border-strong);
+    color: var(--ui-text);
+    box-shadow: var(--ui-glow);
+    transform: scale(1.03);
+  }
+
+  .ui-btn-outline {
+    @apply rounded-md border px-4 py-2 text-sm font-semibold transition disabled:opacity-60;
+    border-color: var(--ui-border-strong);
+    color: var(--ui-text);
+    background-color: var(--ui-bg);
+    transition:
+      background-color 200ms ease,
+      border-color 200ms ease,
+      color 200ms ease,
+      box-shadow 200ms ease,
+      transform 200ms ease;
+    cursor: pointer;
+  }
+
+  .ui-btn-outline:hover {
+    background-color: #3a3a3a;
+    border-color: rgba(255, 255, 255, 0.28);
+    box-shadow: var(--ui-glow);
+    transform: scale(1.03);
+  }
+
+  .ui-alert-error {
+    @apply rounded-md border px-4 py-3 text-sm;
+    border-color: var(--ui-border-strong);
+    background-color: rgba(255, 255, 255, 0.08);
+    color: var(--ui-text);
+  }
+
+  .ui-alert-success {
+    @apply rounded-md border px-4 py-3 text-sm;
+    border-color: var(--ui-border);
+    background-color: var(--ui-surface);
+    color: var(--ui-text);
+  }
+
+  .ui-badge {
+    @apply rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide;
+    border-color: var(--ui-border-strong);
+    color: var(--ui-text);
+    background-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .ui-nav-item {
+    @apply rounded-sm border-b-2 pb-1;
+    border-color: transparent;
+    color: var(--ui-muted);
+    transition:
+      color 200ms ease,
+      border-color 200ms ease,
+      text-shadow 200ms ease;
+    cursor: pointer;
+  }
+
+  .ui-nav-item:hover {
+    color: var(--ui-text);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .ui-nav-item-active {
+    color: var(--ui-text);
+    border-color: var(--ui-accent);
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.12);
+  }
+
+  .ui-btn-primary:disabled,
+  .ui-btn-secondary:disabled,
+  .ui-btn-outline:disabled {
+    transform: none;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+}
