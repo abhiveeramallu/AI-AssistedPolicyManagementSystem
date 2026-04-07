@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react';
 
-export const TokenStatusView = ({ selectedFile, onGenerate, generatedToken, loading }) => {
+export const TokenStatusView = ({
+  selectedFile,
+  onGenerate,
+  generatedToken,
+  generatedShareRef,
+  generatedShareLink,
+  loading
+}) => {
   const [permissionLevel, setPermissionLevel] = useState('view');
   const [expiryMinutes, setExpiryMinutes] = useState(30);
   const [maxUsageCount, setMaxUsageCount] = useState(3);
   const [accessPassword, setAccessPassword] = useState('');
   const [localError, setLocalError] = useState('');
+  const [copyStatus, setCopyStatus] = useState('');
 
   useEffect(() => {
     setLocalError('');
@@ -24,6 +32,10 @@ export const TokenStatusView = ({ selectedFile, onGenerate, generatedToken, load
 
     setAccessPassword('');
   }, [selectedFile]);
+
+  useEffect(() => {
+    setCopyStatus('');
+  }, [generatedShareRef, generatedShareLink, generatedToken]);
 
   const handleGenerateToken = () => {
     setLocalError('');
@@ -59,6 +71,15 @@ export const TokenStatusView = ({ selectedFile, onGenerate, generatedToken, load
       maxUsageCount: parsedMaxUsage,
       accessPassword: trimmedPassword || undefined
     });
+  };
+
+  const copyToClipboard = async (value) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyStatus('Copied');
+    } catch (_error) {
+      setCopyStatus('Copy failed');
+    }
   };
 
   return (
@@ -146,8 +167,52 @@ export const TokenStatusView = ({ selectedFile, onGenerate, generatedToken, load
             Issued Token
           </p>
           <p className="mt-1 break-all text-xs text-[color:var(--ui-text)]">{generatedToken}</p>
+
+          {generatedShareRef || generatedShareLink ? (
+            <div className="mt-3 rounded-md border border-[color:var(--ui-border)] bg-[color:var(--ui-surface)] p-3">
+              <p className="ui-text-muted text-xs font-semibold uppercase tracking-[0.14em]">
+                Friendly Share Access
+              </p>
+              {generatedShareRef ? (
+                <div className="mt-2">
+                  <p className="ui-text-muted text-[11px]">Share Ref (tokenId:code)</p>
+                  <p className="mt-1 break-all text-xs text-[color:var(--ui-text)]">{generatedShareRef}</p>
+                </div>
+              ) : null}
+              {generatedShareLink ? (
+                <div className="mt-2">
+                  <p className="ui-text-muted text-[11px]">Share Link</p>
+                  <p className="mt-1 break-all text-xs text-[color:var(--ui-text)]">{generatedShareLink}</p>
+                </div>
+              ) : null}
+              <div className="mt-3 flex gap-2">
+                {generatedShareLink ? (
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(generatedShareLink)}
+                    className="ui-btn-secondary"
+                  >
+                    Copy link
+                  </button>
+                ) : null}
+                {generatedShareRef ? (
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(generatedShareRef)}
+                    className="ui-btn-secondary"
+                  >
+                    Copy ref
+                  </button>
+                ) : null}
+              </div>
+              {copyStatus ? (
+                <p className="ui-text-muted mt-2 text-xs">{copyStatus}</p>
+              ) : null}
+            </div>
+          ) : null}
+
           <p className="ui-text-muted mt-2 text-xs">
-            Use this token in the top <span className="font-semibold">Access Files</span> section to open the file in a new page.
+            Share the link/ref. Recipient opens Access Files and unlocks with optional password.
           </p>
         </div>
       ) : null}

@@ -125,6 +125,7 @@ Diagram source: `docs/architecture.mmd`.
 - JWT file tokens with expiry and max-usage limits.
 - Optional token secret password (salted + hashed, never stored plaintext).
 - Token validation endpoint for dashboard and shared-link flow.
+- Friendly share reference support (`tokenId:shareCode`) so recipients do not need full JWT.
 - Strict access behavior:
   - `view` token: preview-only
   - `edit` token: download-only
@@ -144,8 +145,11 @@ Diagram source: `docs/architecture.mmd`.
 - `POST /generate-token`
 - `POST /validate-token`
 - `POST /validate-file-token` (shared-token validation for top JWT input/new page flow)
-- `POST /auth/login` (bootstrap session JWT issuance via configured credentials)
+- `POST /resolve-share-access` (resolve `shareId + shareCode` into short-lived file-access JWT)
+- `POST /auth/register` (create local user account and issue session JWT)
+- `POST /auth/login` (local user login; falls back to bootstrap admin credentials if configured)
 - `GET /auth/dev-token` (development convenience)
+- `GET /auth/me` (resolve authenticated user profile from session JWT)
 
 ## Project Structure
 ```text
@@ -276,17 +280,22 @@ Notes:
 ## End-to-End Usage Flow
 1. Obtain Session JWT:
    - local dev: auto-issued via `/auth/dev-token` when `VITE_ENABLE_DEV_AUTH=true`
-   - deployed/prod: use bootstrap login form (`/auth/login`) with `BOOTSTRAP_LOGIN_*` credentials
+   - account flow: register via `/auth/register` then sign in via `/auth/login`
+   - deployed/prod admin fallback: use bootstrap credentials through `/auth/login` with `BOOTSTRAP_LOGIN_*` env vars
 2. Upload file + fill metadata form.
 3. Generate policy (`/generate-policy`).
 4. Confirm policy (exact AI recommendation or controlled override + approval note).
 5. Secure upload (`/upload`) after approval.
 6. Select encrypted file and generate token (permission is locked to approved policy).
 7. (Optional) Set secret password while generating token.
-8. Paste token into the top `Access Files (Token)` field and click `Access Files`.
-9. In the new shared access page, click `Unlock & Open File`:
+8. Share either:
+   - `Share Link` (recommended), or
+   - `Share Ref` (`tokenId:shareCode`), or
+   - full JWT token (still supported).
+9. Recipient opens top `Access Files (Share)` and pastes the link/ref/token, then clicks `Access Files`.
+10. In the new shared access page, click `Unlock & Open File`:
    - If token was password-protected, enter the secret password.
-10. Access behavior:
+11. Access behavior:
    - `view` token opens in-browser preview.
    - `edit` token downloads the file.
 

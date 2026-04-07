@@ -2,12 +2,17 @@ const express = require('express');
 const {
   generateToken,
   validateToken,
-  validateSharedFileToken
+  validateSharedFileToken,
+  resolveShareAccess
 } = require('../controllers/tokenController');
 const { authenticateUser, authorizeRoles } = require('../middleware/authMiddleware');
 const { sensitiveRateLimiter } = require('../middleware/rateLimiterMiddleware');
 const { validateRequest } = require('../middleware/validationMiddleware');
-const { generateTokenSchema, validateTokenSchema } = require('../validators/requestSchemas');
+const {
+  generateTokenSchema,
+  resolveShareAccessSchema,
+  validateTokenSchema
+} = require('../validators/requestSchemas');
 const { ROLES } = require('../constants/roles');
 
 const router = express.Router();
@@ -35,6 +40,13 @@ router.post(
   sensitiveRateLimiter,
   validateRequest(validateTokenSchema),
   validateSharedFileToken
+);
+
+router.post(
+  '/resolve-share-access',
+  sensitiveRateLimiter,
+  validateRequest(resolveShareAccessSchema),
+  resolveShareAccess
 );
 
 module.exports = router;

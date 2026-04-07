@@ -15,11 +15,13 @@ const decodeJwtPayload = (token) => {
   }
 };
 
-export const SharedTokenAccessPage = ({ token }) => {
+export const SharedTokenAccessPage = ({ token, shareId, shareCode }) => {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [tokenInput, setTokenInput] = useState(token || '');
+  const [shareIdInput, setShareIdInput] = useState(shareId || '');
+  const [shareCodeInput, setShareCodeInput] = useState(shareCode || '');
   const [secretPassword, setSecretPassword] = useState('');
   const [claims, setClaims] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -27,6 +29,22 @@ export const SharedTokenAccessPage = ({ token }) => {
   useEffect(() => {
     setTokenInput(token || '');
   }, [token]);
+
+  useEffect(() => {
+    setShareIdInput(shareId || '');
+    setShareCodeInput(shareCode || '');
+  }, [shareId, shareCode]);
+
+  useEffect(() => {
+    if (shareId || shareCode) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const queryShareId = (params.get('share_id') || '').trim();
+    const queryShareCode = (params.get('share_code') || '').trim();
+
+    setShareIdInput(queryShareId);
+    setShareCodeInput(queryShareCode);
+  }, []);
 
   const tokenClaims = useMemo(() => decodeJwtPayload(tokenInput.trim()), [tokenInput]);
 
@@ -46,6 +64,10 @@ export const SharedTokenAccessPage = ({ token }) => {
     });
 
     if (permissionLevel === 'edit') {
+      if (preview?.url) {
+        URL.revokeObjectURL(preview.url);
+      }
+
       const downloadUrl = URL.createObjectURL(accessResponse.blob);
       const anchor = document.createElement('a');
       anchor.href = downloadUrl;
@@ -59,6 +81,10 @@ export const SharedTokenAccessPage = ({ token }) => {
     }
 
     const url = URL.createObjectURL(accessResponse.blob);
+    if (preview?.url) {
+      URL.revokeObjectURL(preview.url);
+    }
+
     const previewPayload = {
       url,
       filename: accessResponse.filename,
@@ -81,16 +107,41 @@ export const SharedTokenAccessPage = ({ token }) => {
 
     try {
       const activeToken = tokenInput.trim();
+      const activeShareId = shareIdInput.trim();
+      const activeShareCode = shareCodeInput.trim();
       const password = secretPassword.trim() || undefined;
 
-      if (!activeToken) {
-        throw new Error('Shared file token is required');
-      }
-
       const runUnlockFlow = async () => {
-        const validationResult = await apiClient.validateSharedFileToken({ token: activeToken, password });
-        setClaims(validationResult.claims);
-        await openWithPermission({ validatedClaims: validationResult.claims, activeToken, password });
+        if (activeToken) {
+          const validationResult = await apiClient.validateSharedFileToken({
+            token: activeToken,
+            password
+          });
+          setClaims(validationResult.claims);
+          await openWithPermission({
+            validatedClaims: validationResult.claims,
+            activeToken,
+            password
+          });
+          return;
+        }
+
+        if (!activeShareId || !activeShareCode) {
+          throw new Error('Share link details are required');
+        }
+
+        const resolved = await apiClient.resolveShareAccess({
+          tokenId: activeShareId,
+          shareCode: activeShareCode,
+          password
+        });
+
+        setClaims(resolved.claims);
+        await openWithPermission({
+          validatedClaims: resolved.claims,
+          activeToken: resolved.token,
+          password
+        });
       };
 
       try {
@@ -120,6 +171,7 @@ export const SharedTokenAccessPage = ({ token }) => {
 
   const activeClaims = claims || tokenClaims;
   const permission = activeClaims?.permissionLevel || 'unknown';
+  const tokenMode = Boolean(tokenInput.trim());
   const isImage = preview?.mimeType?.startsWith('image/');
   const isPdf = preview?.mimeType === 'application/pdf';
   const isHtml = preview?.mimeType?.includes('text/html');
@@ -134,16 +186,39 @@ export const SharedTokenAccessPage = ({ token }) => {
         </p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <label className="text-sm">
-            <span className="ui-label">Shared Token</span>
-            <textarea
-              value={tokenInput}
-              onChange={(event) => setTokenInput(event.target.value)}
-              rows={3}
-              className="ui-input mt-1 text-xs"
-              placeholder="Paste file access JWT"
-            />
-          </label>
+          {tokenMode ? (
+            <label className="text-sm md:col-span-2">
+              <span className="ui-label">Shared Token</span>
+              <textarea
+                value={tokenInput}
+                onChange={(event) => setTokenInput(event.target.value)}
+                rows={3}
+                className="ui-input mt-1 text-xs"
+                placeholder="Paste file access JWT"
+              />
+            </label>
+          ) : (
+            <>
+              <label className="text-sm">
+                <span className="ui-label">Share ID</span>
+                <input
+                  value={shareIdInput}
+                  onChange={(event) => setShareIdInput(event.target.value)}
+                  className="ui-input mt-1 text-xs"
+                  placeholder="24-char token id"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="ui-label">Share Code</span>
+                <input
+                  value={shareCodeInput}
+                  onChange={(event) => setShareCodeInput(event.target.value)}
+                  className="ui-input mt-1 text-xs"
+                  placeholder="short access code"
+                />
+              </label>
+            </>
+          )}
           <label className="text-sm">
             <span className="ui-label">Secret Password</span>
             <input

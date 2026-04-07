@@ -74,6 +74,14 @@ const validateTokenSchema = {
   })
 };
 
+const resolveShareAccessSchema = {
+  body: z.object({
+    tokenId: objectIdSchema,
+    shareCode: z.string().min(8).max(64),
+    password: z.string().min(6).max(128).optional()
+  })
+};
+
 const authLoginSchema = {
   body: z.object({
     email: z.string().email().max(200),
@@ -81,12 +89,23 @@ const authLoginSchema = {
   })
 };
 
+const authRegisterSchema = {
+  body: z.object({
+    name: z.string().trim().min(2).max(80).optional(),
+    email: z.string().email().max(200),
+    password: z.string().min(8).max(128),
+    role: z.enum(['editor', 'viewer']).optional()
+  })
+};
+
 module.exports = {
   authLoginSchema,
+  authRegisterSchema,
   generatePolicySchema,
   approvePolicySchema,
   uploadSchema,
   fileIdParamSchema,
   generateTokenSchema,
-  validateTokenSchema
+  validateTokenSchema,
+  resolveShareAccessSchema
 };

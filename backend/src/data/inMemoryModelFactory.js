@@ -6,6 +6,7 @@ const env = require('../config/env');
 const dbFilePath = env.localDbPath;
 
 const collections = {
+  User: new Map(),
   PolicyProposal: new Map(),
   EncryptedFile: new Map(),
   TokenLog: new Map(),

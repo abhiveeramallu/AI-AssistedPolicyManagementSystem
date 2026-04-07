@@ -29,8 +29,44 @@ const verifyAccessPassword = ({ password, passwordSalt, passwordHash }) => {
   }
 };
 
-const issueFileAccessToken = ({ fileId, delegatedBy, permissionLevel, expiresIn, maxUsageCount }) => {
-  const jti = crypto.randomUUID();
+const normalizeShareCode = (value) =>
+  String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+
+const createFriendlyShareCode = ({ tokenId, jti, fileId }) => {
+  const material = `${tokenId}:${jti}:${fileId}`;
+  return normalizeShareCode(
+    crypto.createHmac('sha256', env.fileTokenSecret).update(material).digest('base64url')
+  ).slice(0, 16);
+};
+
+const compareSafely = (left, right) => {
+  const leftBuffer = Buffer.from(String(left || ''), 'utf8');
+  const rightBuffer = Buffer.from(String(right || ''), 'utf8');
+
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+};
+
+const verifyFriendlyShareCode = ({ providedCode, tokenId, jti, fileId }) => {
+  const normalizedProvided = normalizeShareCode(providedCode);
+  const expected = createFriendlyShareCode({ tokenId, jti, fileId });
+  return compareSafely(normalizedProvided, expected);
+};
+
+const issueFileAccessToken = ({
+  fileId,
+  delegatedBy,
+  permissionLevel,
+  expiresIn,
+  maxUsageCount,
+  jti: providedJti
+}) => {
+  const jti = providedJti || crypto.randomUUID();
   const token = jwt.sign(
     {
       jti,
@@ -70,6 +106,8 @@ module.exports = {
   hashToken,
   createAccessPasswordRecord,
   verifyAccessPassword,
+  createFriendlyShareCode,
+  verifyFriendlyShareCode,
   issueFileAccessToken,
   verifyFileAccessToken,
   issueDemoUserToken

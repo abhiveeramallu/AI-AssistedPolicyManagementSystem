@@ -52,20 +52,102 @@ const decodeJwtPayload = (token) => {
   }
 };
 
-const getSharedTokenFromUrl = () => {
+const getSharedAccessFromUrl = () => {
   const params = new URLSearchParams(window.location.search);
-  return params.get('shared_token') || '';
+  const sharedToken = (params.get('shared_token') || '').trim();
+  const shareId = (params.get('share_id') || '').trim();
+  const shareCode = (params.get('share_code') || '').trim();
+
+  return {
+    sharedToken,
+    shareId,
+    shareCode
+  };
+};
+
+const normalizeShareCode = (value) =>
+  String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+
+const safeDecode = (value) => {
+  try {
+    return decodeURIComponent(value);
+  } catch (_error) {
+    return value;
+  }
+};
+
+const parseShareInput = (rawInput) => {
+  const value = String(rawInput || '').trim();
+  if (!value) {
+    return { error: 'Enter a share link, share reference, or file token.' };
+  }
+
+  try {
+    const parsedUrl = new URL(value);
+    const params = parsedUrl.searchParams;
+    const sharedToken = (params.get('shared_token') || '').trim();
+    if (sharedToken) {
+      return { token: sharedToken };
+    }
+
+    const shareId = (params.get('share_id') || '').trim();
+    const shareCode = normalizeShareCode(params.get('share_code') || '');
+    if (/^[a-fA-F0-9]{24}$/.test(shareId) && shareCode.length >= 8) {
+      return { shareId, shareCode };
+    }
+  } catch (_error) {
+    // Continue with non-URL parsing.
+  }
+
+  const queryStringMatch = value.match(/[?&]share_id=([^&\s]+).*?[?&]share_code=([^&\s]+)/i);
+  if (queryStringMatch) {
+    const shareId = safeDecode(queryStringMatch[1]).trim();
+    const shareCode = normalizeShareCode(safeDecode(queryStringMatch[2]));
+    if (/^[a-fA-F0-9]{24}$/.test(shareId) && shareCode.length >= 8) {
+      return { shareId, shareCode };
+    }
+  }
+
+  const shareRefMatch = value.match(/^([a-fA-F0-9]{24})\s*[:|]\s*([A-Za-z0-9-]{8,64})$/);
+  if (shareRefMatch) {
+    return {
+      shareId: shareRefMatch[1],
+      shareCode: normalizeShareCode(shareRefMatch[2])
+    };
+  }
+
+  const decoded = decodeJwtPayload(value);
+  if (decoded?.type === 'file_access' && decoded?.fileId) {
+    return { token: value };
+  }
+
+  return {
+    error:
+      'Invalid share format. Use a full share link, tokenId:shareCode, or a file access JWT.'
+  };
 };
 
 function App() {
-  const sharedTokenFromUrl = getSharedTokenFromUrl();
-  if (sharedTokenFromUrl) {
-    return <SharedTokenAccessPage token={sharedTokenFromUrl} />;
+  const sharedAccessFromUrl = getSharedAccessFromUrl();
+  if (sharedAccessFromUrl.sharedToken || (sharedAccessFromUrl.shareId && sharedAccessFromUrl.shareCode)) {
+    return (
+      <SharedTokenAccessPage
+        token={sharedAccessFromUrl.sharedToken}
+        shareId={sharedAccessFromUrl.shareId}
+        shareCode={sharedAccessFromUrl.shareCode}
+      />
+    );
   }
 
   const [authToken, setAuthToken] = useState(getInitialToken);
+  const [authMode, setAuthMode] = useState('login');
+  const [currentUser, setCurrentUser] = useState(null);
   const [loginEmail, setLoginEmail] = useState(import.meta.env.VITE_BOOTSTRAP_LOGIN_EMAIL || '');
   const [loginPassword, setLoginPassword] = useState('');
+  const [registerName, setRegisterName] = useState('');
+  const [registerRole, setRegisterRole] = useState('editor');
   const [sharedTokenInput, setSharedTokenInput] = useState('');
   const [localFile, setLocalFile] = useState(null);
   const [fileInputError, setFileInputError] = useState('');
@@ -75,6 +157,8 @@ function App() {
   const [files, setFiles] = useState([]);
   const [selectedStoredFile, setSelectedStoredFile] = useState(null);
   const [generatedToken, setGeneratedToken] = useState('');
+  const [generatedShareRef, setGeneratedShareRef] = useState('');
+  const [generatedShareLink, setGeneratedShareLink] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [loadingAction, setLoadingAction] = useState('');
@@ -128,6 +212,7 @@ function App() {
       try {
         const response = await apiClient.fetchDevToken();
         setAuthToken(response.token);
+        setCurrentUser(response.user || null);
         setStatusMessage('Development JWT issued automatically.');
       } catch (_error) {
         setErrorMessage('Unable to auto-issue development JWT. Provide a valid Session JWT.');
@@ -153,6 +238,33 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem(TOKEN_STORAGE_KEY, authToken);
+  }, [authToken]);
+
+  useEffect(() => {
+    if (!authToken) {
+      setCurrentUser(null);
+      return;
+    }
+
+    let cancelled = false;
+    const hydrateUser = async () => {
+      try {
+        const response = await apiClient.getCurrentUser(authToken);
+        if (!cancelled) {
+          setCurrentUser(response.user || null);
+        }
+      } catch (_error) {
+        if (!cancelled) {
+          setCurrentUser(null);
+        }
+      }
+    };
+
+    hydrateUser();
+
+    return () => {
+      cancelled = true;
+    };
   }, [authToken]);
 
   const clearMessages = () => {
@@ -251,7 +363,16 @@ function App() {
     withActionState('generate-token', async () => {
       const response = await apiClient.generateFileToken(authToken, payload);
       setGeneratedToken(response.token);
-      setStatusMessage('Time-bound JWT token generated.');
+      const shareRef = response.shareRef || '';
+      const shareLink =
+        response.shareId && response.shareCode
+          ? `${window.location.origin}${window.location.pathname}?share_id=${encodeURIComponent(response.shareId)}&share_code=${encodeURIComponent(response.shareCode)}`
+          : '';
+
+      setGeneratedShareRef(shareRef);
+      setGeneratedShareLink(shareLink);
+      setSharedTokenInput(shareLink || shareRef || response.token || '');
+      setStatusMessage('Secure token generated with a user-friendly share reference.');
     });
 
   const onDeleteFile = (id) =>
@@ -263,19 +384,15 @@ function App() {
 
   const onOpenSharedTokenPage = () => {
     clearMessages();
-    const token = sharedTokenInput.trim();
-    if (!token) {
-      setErrorMessage('Paste a shared file JWT first');
+    const parsed = parseShareInput(sharedTokenInput);
+    if (parsed.error) {
+      setErrorMessage(parsed.error);
       return;
     }
 
-    const decoded = decodeJwtPayload(token);
-    if (!decoded?.fileId || decoded?.type !== 'file_access') {
-      setErrorMessage('This token is not a valid file access JWT');
-      return;
-    }
-
-    const targetUrl = `${window.location.origin}${window.location.pathname}?shared_token=${encodeURIComponent(token)}`;
+    const targetUrl = parsed.token
+      ? `${window.location.origin}${window.location.pathname}?shared_token=${encodeURIComponent(parsed.token)}`
+      : `${window.location.origin}${window.location.pathname}?share_id=${encodeURIComponent(parsed.shareId)}&share_code=${encodeURIComponent(parsed.shareCode)}`;
     const newTab = window.open(targetUrl, '_blank', 'noopener,noreferrer');
 
     if (!newTab) {
@@ -286,8 +403,8 @@ function App() {
     setStatusMessage('Opened shared file access page in a new tab.');
   };
 
-  const onBootstrapLogin = () =>
-    withActionState('bootstrap-login', async () => {
+  const onLogin = () =>
+    withActionState('auth-login', async () => {
       const email = loginEmail.trim();
       const password = loginPassword;
 
@@ -301,9 +418,51 @@ function App() {
 
       const response = await apiClient.login({ email, password });
       setAuthToken(response.token);
+      setCurrentUser(response.user || null);
       setLoginPassword('');
-      setStatusMessage('Session JWT issued successfully from bootstrap login.');
+      setStatusMessage('Login successful. Session JWT issued.');
     });
+
+  const onRegister = () =>
+    withActionState('auth-register', async () => {
+      const email = loginEmail.trim();
+      const password = loginPassword;
+      const name = registerName.trim();
+
+      if (!email) {
+        throw new Error('Registration email is required');
+      }
+
+      if (!password || password.length < 8) {
+        throw new Error('Registration password must be at least 8 characters');
+      }
+
+      const response = await apiClient.register({
+        email,
+        password,
+        name: name || undefined,
+        role: registerRole
+      });
+
+      setAuthToken(response.token);
+      setCurrentUser(response.user || null);
+      setLoginPassword('');
+      setStatusMessage('Account created and logged in successfully.');
+    });
+
+  const onLogout = () => {
+    setAuthToken('');
+    setCurrentUser(null);
+    setPolicyData(null);
+    setApprovedPolicy(null);
+    setSelectedStoredFile(null);
+    setGeneratedToken('');
+    setGeneratedShareRef('');
+    setGeneratedShareLink('');
+    setSharedTokenInput('');
+    setFiles([]);
+    setStatusMessage('Signed out.');
+  };
 
   const handleFileSelect = (file) => {
     setFileInputError('');
@@ -460,39 +619,109 @@ function App() {
         </section>
 
         <section className="ui-card mt-5">
-          <div className="grid gap-3 md:grid-cols-[1fr,1fr,auto]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setAuthMode('login')}
+                className={authMode === 'login' ? 'ui-btn-primary' : 'ui-btn-secondary'}
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthMode('register')}
+                className={authMode === 'register' ? 'ui-btn-primary' : 'ui-btn-secondary'}
+              >
+                Register
+              </button>
+            </div>
+            {authToken ? (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="ui-btn-outline"
+              >
+                Sign Out
+              </button>
+            ) : null}
+          </div>
+
+          <div className="mt-3 grid gap-3 md:grid-cols-[1fr,1fr,auto]">
             <label className="block">
-              <span className="ui-label">Bootstrap Login Email</span>
+              <span className="ui-label">Email</span>
               <input
                 value={loginEmail}
                 onChange={(event) => setLoginEmail(event.target.value)}
-                placeholder="admin@secure-policy.local"
+                type="email"
+                autoComplete="username"
+                placeholder="you@example.com"
                 className="ui-input mt-1 text-xs"
               />
             </label>
             <label className="block">
-              <span className="ui-label">Bootstrap Login Password</span>
+              <span className="ui-label">Password</span>
               <input
                 value={loginPassword}
                 onChange={(event) => setLoginPassword(event.target.value)}
                 type="password"
+                autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
                 minLength={8}
                 maxLength={128}
-                placeholder="Enter bootstrap password"
+                placeholder="Enter password"
                 className="ui-input mt-1 text-xs"
               />
             </label>
             <div className="flex items-end">
               <button
                 type="button"
-                onClick={onBootstrapLogin}
+                onClick={authMode === 'login' ? onLogin : onRegister}
                 disabled={isBusy}
                 className="ui-btn-primary w-full md:w-auto"
               >
-                {loadingAction === 'bootstrap-login' ? 'Signing in...' : 'Get Session JWT'}
+                {loadingAction === 'auth-login' || loadingAction === 'auth-register'
+                  ? authMode === 'login'
+                    ? 'Signing in...'
+                    : 'Creating...'
+                  : authMode === 'login'
+                    ? 'Sign In'
+                    : 'Create Account'}
               </button>
             </div>
           </div>
+
+          {authMode === 'register' ? (
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label className="block">
+                <span className="ui-label">Display Name (optional)</span>
+                <input
+                  value={registerName}
+                  onChange={(event) => setRegisterName(event.target.value)}
+                  maxLength={80}
+                  placeholder="Your name"
+                  className="ui-input mt-1 text-xs"
+                />
+              </label>
+              <label className="block">
+                <span className="ui-label">Role</span>
+                <select
+                  value={registerRole}
+                  onChange={(event) => setRegisterRole(event.target.value)}
+                  className="ui-input mt-1 text-xs"
+                >
+                  <option value="editor">Editor</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+              </label>
+            </div>
+          ) : null}
+
+          {currentUser ? (
+            <p className="ui-text-muted mt-3 text-xs">
+              Signed in as <span className="font-semibold text-[color:var(--ui-text)]">{currentUser.email}</span> (
+              {String(currentUser.role || '').toUpperCase()})
+            </p>
+          ) : null}
 
           <label className="ui-label mt-4 block">Session JWT</label>
           <input
@@ -502,14 +731,12 @@ function App() {
             className="ui-input mt-1 text-xs"
           />
 
-          <label className="ui-label mt-4 block">
-            Access Files (Token)
-          </label>
+          <label className="ui-label mt-4 block">Access Files (Share)</label>
           <div className="mt-1 flex flex-col gap-2 md:flex-row">
             <input
               value={sharedTokenInput}
               onChange={(event) => setSharedTokenInput(event.target.value)}
-              placeholder="Paste encrypted-file token"
+              placeholder="Paste share link, share ref (tokenId:code), or file token"
               className="ui-input w-full text-xs"
             />
             <button
@@ -522,7 +749,7 @@ function App() {
             </button>
           </div>
           <p className="ui-text-muted mt-2 text-xs">
-            This opens a new page where token access is validated and unlocked.
+            Opens a new page where share access is validated, password-checked, and then unlocked.
           </p>
         </section>
 
@@ -669,6 +896,8 @@ function App() {
               selectedFile={selectedStoredFile}
               onGenerate={onGenerateToken}
               generatedToken={generatedToken}
+              generatedShareRef={generatedShareRef}
+              generatedShareLink={generatedShareLink}
               loading={isBusy}
             />
           </aside>

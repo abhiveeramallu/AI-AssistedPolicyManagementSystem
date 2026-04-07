@@ -4,9 +4,11 @@ const asyncHandler = require('../utils/asyncHandler');
 const { AppError } = require('../middleware/errorMiddleware');
 const {
   createAccessPasswordRecord,
+  createFriendlyShareCode,
   issueFileAccessToken,
   verifyAccessPassword,
-  verifyFileAccessToken
+  verifyFileAccessToken,
+  verifyFriendlyShareCode
 } = require('../services/security/tokenService');
 const { isPolicyExpired } = require('../services/security/accessControlService');
 const { writeAuditLog } = require('../utils/auditLogger');
@@ -73,6 +75,48 @@ const performTokenValidation = async ({ token, actorId = 'validator', password }
   };
 };
 
+const getValidatedTokenLogById = async ({ tokenId, password }) => {
+  const tokenLog = await TokenLog.findById(tokenId);
+
+  if (!tokenLog) {
+    throw new AppError('Share reference is not recognized', 404);
+  }
+
+  if (tokenLog.expiresAt.getTime() < Date.now()) {
+    tokenLog.status = 'expired';
+    await tokenLog.save();
+    throw new AppError('Share reference has expired', 401);
+  }
+
+  if (tokenLog.currentUsageCount >= tokenLog.maxUsageCount) {
+    tokenLog.status = 'rejected';
+    tokenLog.invalidReason = 'Maximum token usage count reached';
+    await tokenLog.save();
+    throw new AppError('Share reference usage limit reached', 403);
+  }
+
+  if (tokenLog.passwordHash) {
+    if (!password) {
+      throw new AppError('Access password is required for this share reference', 401);
+    }
+
+    const passwordValid = verifyAccessPassword({
+      password,
+      passwordSalt: tokenLog.passwordSalt,
+      passwordHash: tokenLog.passwordHash
+    });
+
+    if (!passwordValid) {
+      tokenLog.invalidReason = 'Invalid access password';
+      tokenLog.lastValidatedAt = new Date();
+      await tokenLog.save();
+      throw new AppError('Invalid access password', 401);
+    }
+  }
+
+  return tokenLog;
+};
+
 const generateToken = asyncHandler(async (req, res) => {
   const fileDoc = await EncryptedFile.findById(req.body.fileId);
 
@@ -136,6 +180,13 @@ const generateToken = asyncHandler(async (req, res) => {
     userAgent: req.headers['user-agent']
   });
 
+  const shareCode = createFriendlyShareCode({
+    tokenId: tokenLog.id,
+    jti,
+    fileId: fileDoc.id
+  });
+  const shareRef = `${tokenLog.id}:${shareCode}`;
+
   await writeAuditLog({
     actorId: req.user.id,
     action: 'token.generate',
@@ -153,6 +204,9 @@ const generateToken = asyncHandler(async (req, res) => {
   return res.status(201).json({
     token,
     tokenId: tokenLog.id,
+    shareId: tokenLog.id,
+    shareCode,
+    shareRef,
     expiresAt,
     permissionLevel: tokenPermission,
     maxUsageCount: tokenLog.maxUsageCount,
@@ -204,8 +258,74 @@ const validateSharedFileToken = asyncHandler(async (req, res) => {
   }
 });
 
+const resolveShareAccess = asyncHandler(async (req, res) => {
+  const tokenId = String(req.body.tokenId || '').trim();
+  const shareCode = req.body.shareCode;
+  const password = req.body.password;
+
+  const tokenLog = await getValidatedTokenLogById({ tokenId, password });
+
+  const shareCodeValid = verifyFriendlyShareCode({
+    providedCode: shareCode,
+    tokenId: tokenLog.id,
+    jti: tokenLog.jti,
+    fileId: tokenLog.fileId
+  });
+
+  if (!shareCodeValid) {
+    tokenLog.invalidReason = 'Invalid share code';
+    tokenLog.lastValidatedAt = new Date();
+    await tokenLog.save();
+    throw new AppError('Invalid share code', 401);
+  }
+
+  const remainingSeconds = Math.max(
+    30,
+    Math.floor((tokenLog.expiresAt.getTime() - Date.now()) / 1000)
+  );
+  const temporaryTokenTtl = Math.min(300, remainingSeconds);
+
+  const { token, decoded } = issueFileAccessToken({
+    fileId: tokenLog.fileId,
+    delegatedBy: tokenLog.issuedBy,
+    permissionLevel: tokenLog.permissionLevel,
+    expiresIn: `${temporaryTokenTtl}s`,
+    maxUsageCount: tokenLog.maxUsageCount,
+    jti: tokenLog.jti
+  });
+
+  tokenLog.status = 'validated';
+  tokenLog.lastValidatedAt = new Date();
+  await tokenLog.save();
+
+  await writeAuditLog({
+    actorId: 'public-share-resolver',
+    action: 'token.share.resolve',
+    entityType: 'TokenLog',
+    entityId: tokenLog.id,
+    outcome: 'success',
+    details: {
+      fileId: tokenLog.fileId,
+      permissionLevel: tokenLog.permissionLevel
+    }
+  });
+
+  return res.status(200).json({
+    token,
+    claims: {
+      fileId: tokenLog.fileId,
+      permissionLevel: tokenLog.permissionLevel,
+      maxUsageCount: tokenLog.maxUsageCount,
+      delegatedBy: tokenLog.issuedBy,
+      expiresAt: new Date(decoded.exp * 1000).toISOString(),
+      requiresPassword: Boolean(tokenLog.passwordHash)
+    }
+  });
+});
+
 module.exports = {
   generateToken,
   validateToken,
-  validateSharedFileToken
+  validateSharedFileToken,
+  resolveShareAccess
 };

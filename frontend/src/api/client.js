@@ -177,7 +177,9 @@ const request = async ({ path, method = 'GET', body, token, extraHeaders = {}, i
 };
 
 export const apiClient = {
+  register: (payload) => request({ path: '/auth/register', method: 'POST', body: payload }),
   login: (credentials) => request({ path: '/auth/login', method: 'POST', body: credentials }),
+  getCurrentUser: (token) => request({ path: '/auth/me', method: 'GET', token }),
   fetchDevToken: () => request({ path: '/auth/dev-token', method: 'GET' }),
   generatePolicy: (token, data) => request({ path: '/generate-policy', method: 'POST', body: data, token }),
   approvePolicy: (token, data) => request({ path: '/approve-policy', method: 'POST', body: data, token }),
@@ -190,6 +192,8 @@ export const apiClient = {
     request({ path: '/validate-token', method: 'POST', body: data, token }),
   validateSharedFileToken: (data) =>
     request({ path: '/validate-file-token', method: 'POST', body: data }),
+  resolveShareAccess: (data) =>
+    request({ path: '/resolve-share-access', method: 'POST', body: data }),
   deleteFile: (token, id) => request({ path: `/file/${id}`, method: 'DELETE', token }),
   accessFileWithToken: async ({ fileId, token, preview = false, password }) => {
     let response;
