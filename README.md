@@ -248,7 +248,7 @@ npm run dev
 This repository includes `/Users/vabhiram/Documents/infoseq/render.yaml` for one Blueprint deployment of:
 - `secure-policy-api` (Node web service)
 - `secure-policy-app` (static frontend service)
-- Persistent disk mounted for encrypted files and local metadata store
+- Free-tier compatible configuration (no persistent disk mount)
 
 How to deploy on Render:
 1. Push this repository to GitHub/GitLab.
@@ -263,6 +263,8 @@ Notes:
   - frontend static publish path is `dist`
   - dev-token auto-login is disabled (`ENABLE_DEV_AUTH_ENDPOINT=false`, `VITE_ENABLE_DEV_AUTH=false`)
   - bootstrap login credentials are expected via `BOOTSTRAP_LOGIN_*` env vars
+- Free-tier limitation: backend storage is ephemeral, so encrypted files/local JSON datastore can reset on restart/redeploy.
+- For persistence, move API service to a paid Render plan with disk support or migrate storage to managed external services.
 
 ### Alternative: Frontend on Vercel + Backend on Render
 
