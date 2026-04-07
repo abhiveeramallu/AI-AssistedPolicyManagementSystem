@@ -62,9 +62,26 @@ const buildUploadModuleRecommendations = ({ riskLevel, externalSharing, largeFil
   return baseline;
 };
 
-const buildReviewChecklist = ({ permissionLevel, riskLevel, externalSharing }) => {
+const deriveRecommendedControls = ({ riskLevel, externalSharing, largeFile }) => {
+  const controlByRisk = {
+    low: { requireTokenPassword: false, maxTokenTtlMinutes: 360 },
+    medium: { requireTokenPassword: false, maxTokenTtlMinutes: 180 },
+    high: { requireTokenPassword: true, maxTokenTtlMinutes: 60 },
+    critical: { requireTokenPassword: true, maxTokenTtlMinutes: 30 }
+  };
+
+  const baseline = controlByRisk[riskLevel] || controlByRisk.medium;
+
+  return {
+    requireTokenPassword: baseline.requireTokenPassword || externalSharing,
+    maxTokenTtlMinutes: largeFile ? Math.min(baseline.maxTokenTtlMinutes, 90) : baseline.maxTokenTtlMinutes,
+    requireStrictAuditTrail: true
+  };
+};
+
+const buildReviewChecklist = ({ riskLevel, externalSharing }) => {
   return [
-    `Confirm ${permissionLevel.toUpperCase()} is the minimum permission needed for this purpose.`,
+    'Confirm recommended access mode is the minimum needed for this purpose.',
     `Verify expiry is short enough for ${riskLevel.toUpperCase()} risk handling.`,
     externalSharing
       ? 'Validate recipient scope and sharing channel are approved for external access.'
@@ -75,7 +92,6 @@ const buildReviewChecklist = ({ permissionLevel, riskLevel, externalSharing }) =
 const buildDeterministicRecommendation = (context, engine = 'rule-baseline-v2') => {
   const requestedDuration = clampNumber(context.durationHours, 1, 24 * 90);
   const requestedAttempts = clampNumber(context.maxAccessAttempts || 5, 1, 20);
-  const requestedPermission = normalizePermission(context.desiredPermission, 'view');
   const purpose = (context.purpose || '').toLowerCase();
   const dataType = (context.dataType || '').toLowerCase();
   const sensitivity = (context.sensitivity || 'low').toLowerCase();
@@ -99,12 +115,30 @@ const buildDeterministicRecommendation = (context, engine = 'rule-baseline-v2') 
   };
 
   const signals = [];
+  const riskDrivers = [];
   const pushSignal = (message) => {
     if (!signals.includes(message) && signals.length < 6) signals.push(message);
+  };
+  const pushDriver = (factor, impact, detail) => {
+    riskDrivers.push({
+      factor,
+      impact,
+      detail
+    });
   };
 
   let riskScore = sensitivityScoreMap[sensitivity] ?? sensitivityScoreMap.low;
   riskScore += dataTypeScoreMap[dataType] ?? dataTypeScoreMap.other;
+  pushDriver(
+    'Sensitivity',
+    sensitivityScoreMap[sensitivity] ?? sensitivityScoreMap.low,
+    `Sensitivity ${sensitivity.toUpperCase()} contributes base risk.`
+  );
+  pushDriver(
+    'Data Type',
+    dataTypeScoreMap[dataType] ?? dataTypeScoreMap.other,
+    `Data type ${dataType || 'other'} adds compliance handling pressure.`
+  );
 
   pushSignal(`Sensitivity is ${sensitivity.toUpperCase()}.`);
   pushSignal(`Data type ${dataType || 'other'} carries elevated handling expectations.`);
@@ -112,41 +146,43 @@ const buildDeterministicRecommendation = (context, engine = 'rule-baseline-v2') 
   if (externalSharing) {
     riskScore += 12;
     pushSignal('Business purpose indicates external sharing exposure.');
+    pushDriver('External Sharing', 12, 'Purpose suggests exposure outside trusted boundary.');
   }
 
   if (collaborativePurpose) {
     riskScore += 5;
     pushSignal('Purpose indicates collaborative updates and multi-user access.');
-  }
-
-  if (requestedPermission === 'edit') {
-    riskScore += 6;
-    pushSignal('Requested EDIT access expands modification risk.');
+    pushDriver('Collaborative Workflow', 5, 'Multi-user workflow increases change surface.');
   }
 
   if (requestedDuration > 24) {
     riskScore += 4;
     pushSignal('Requested duration exceeds a single day.');
+    pushDriver('Access Duration', 4, 'Duration above 24h expands exposure window.');
   }
 
   if (requestedDuration > 72) {
     riskScore += 6;
     pushSignal('Requested duration exceeds 72 hours and increases exposure window.');
+    pushDriver('Access Duration', 6, 'Duration above 72h significantly expands exposure.');
   }
 
   if (requestedDuration > 168) {
     riskScore += 8;
     pushSignal('Requested duration exceeds one week.');
+    pushDriver('Access Duration', 8, 'Duration above one week is high persistence risk.');
   }
 
   if (largeFile) {
     riskScore += 6;
     pushSignal(`Large file footprint (${fileSizeMb.toFixed(1)} MB) increases accidental leak impact.`);
+    pushDriver('File Size', 6, `Large payload (${fileSizeMb.toFixed(1)} MB) raises blast radius.`);
   }
 
   if (shortLivedPurpose) {
     riskScore -= 4;
     pushSignal('Short-lived purpose reduces required access window.');
+    pushDriver('Short-Lived Purpose', -4, 'Temporary use-case lowers persistence risk.');
   }
 
   riskScore = clampNumber(riskScore, 5, 99);
@@ -162,9 +198,11 @@ const buildDeterministicRecommendation = (context, engine = 'rule-baseline-v2') 
   const riskProfile = byRisk[riskLevel];
   const suggestedPermission =
     riskLevel === 'low'
-      ? requestedPermission
+      ? collaborativePurpose
+        ? 'edit'
+        : 'view'
       : riskLevel === 'medium'
-        ? collaborativePurpose && requestedPermission === 'edit'
+        ? collaborativePurpose && !externalSharing
           ? 'edit'
           : 'view'
         : 'view';
@@ -173,8 +211,9 @@ const buildDeterministicRecommendation = (context, engine = 'rule-baseline-v2') 
   const expiryHours = Math.min(requestedDuration, riskProfile.expiryCap);
   const maxAccessAttempts = Math.min(requestedAttempts, riskProfile.attemptsCap);
 
-  const riskExplanation = `Risk score ${riskScore}/100 (${riskLevel.toUpperCase()}) based on sensitivity, data type, purpose, duration, and requested permission. Recommended least-privilege controls keep access bounded and enforce encrypted handling.`;
-  const decisionSummary = `Recommend ${permissionLevel.toUpperCase()} access for ${expiryHours}h with ${maxAccessAttempts} max attempts and mandatory encryption.`;
+  const riskExplanation = `Risk score ${riskScore}/100 (${riskLevel.toUpperCase()}) based on sensitivity, data type, purpose, duration, and requested access needs. Recommended least-privilege controls keep access bounded and enforce encrypted handling.`;
+  const decisionSummary = `Recommend bounded access for ${expiryHours}h with ${maxAccessAttempts} max attempts and mandatory encryption.`;
+  const recommendedControls = deriveRecommendedControls({ riskLevel, externalSharing, largeFile });
 
   return {
     permissionLevel,
@@ -192,7 +231,9 @@ const buildDeterministicRecommendation = (context, engine = 'rule-baseline-v2') 
     riskLevel,
     riskSignals: signals,
     decisionSummary,
-    reviewChecklist: buildReviewChecklist({ permissionLevel, riskLevel, externalSharing }),
+    reviewChecklist: buildReviewChecklist({ riskLevel, externalSharing }),
+    recommendedControls,
+    riskDrivers,
     guardrailsApplied: [],
     engine
   };
@@ -245,6 +286,30 @@ const sanitizeRecommendation = (recommendation, baselineRecommendation) => {
     guardrailsApplied.push('attempt-limit-capped');
   }
 
+  const aiControls =
+    recommendation && typeof recommendation.recommendedControls === 'object'
+      ? recommendation.recommendedControls
+      : {};
+  const baselineControls = baselineRecommendation.recommendedControls || {};
+  const baselineTokenTtl = clampNumber(baselineControls.maxTokenTtlMinutes, 5, 720);
+  const aiTokenTtlCandidate = Number.isFinite(Number(aiControls.maxTokenTtlMinutes))
+    ? clampNumber(aiControls.maxTokenTtlMinutes, 5, 720)
+    : baselineTokenTtl;
+  const normalizedControls = {
+    requireTokenPassword: Boolean(
+      baselineControls.requireTokenPassword || aiControls.requireTokenPassword
+    ),
+    maxTokenTtlMinutes: Math.min(aiTokenTtlCandidate, baselineTokenTtl),
+    requireStrictAuditTrail: true
+  };
+  if (Number.isFinite(Number(aiControls.maxTokenTtlMinutes)) && normalizedControls.maxTokenTtlMinutes !== aiTokenTtlCandidate) {
+    guardrailsApplied.push('token-ttl-capped');
+  }
+
+  const riskDrivers = Array.isArray(baselineRecommendation.riskDrivers)
+    ? baselineRecommendation.riskDrivers.slice(0, 8)
+    : [];
+
   const aiConfidence = Math.max(0, Math.min(1, Number(recommendation.confidence) || baselineRecommendation.confidence));
   const blendedConfidence = Math.max(
     0.6,
@@ -267,6 +332,8 @@ const sanitizeRecommendation = (recommendation, baselineRecommendation) => {
         ? recommendation.decisionSummary.trim()
         : baselineRecommendation.decisionSummary,
     reviewChecklist: normalizedReviewChecklist,
+    recommendedControls: normalizedControls,
+    riskDrivers,
     riskScore: baselineRecommendation.riskScore,
     riskLevel: baselineRecommendation.riskLevel,
     riskSignals: baselineRecommendation.riskSignals,

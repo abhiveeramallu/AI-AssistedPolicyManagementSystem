@@ -10,7 +10,6 @@ Constraints:
   - purpose: ${context.purpose}
   - sensitivity: ${context.sensitivity}
   - requestedDurationHours: ${context.durationHours}
-  - desiredPermission: ${context.desiredPermission || 'not specified'}
   - maxAccessAttemptsRequested: ${context.maxAccessAttempts || 'not specified'}
   - fileName: ${context.fileName}
   - fileType: ${context.fileType}
@@ -27,6 +26,11 @@ Return valid JSON only with this exact schema:
   "expiryHours": number,
   "encryptionRequired": true,
   "maxAccessAttempts": number,
+  "recommendedControls": {
+    "requireTokenPassword": boolean,
+    "maxTokenTtlMinutes": number,
+    "requireStrictAuditTrail": true
+  },
   "riskExplanation": string,
   "decisionSummary": string,
   "reviewChecklist": [string, string, string],
@@ -37,8 +41,10 @@ Return valid JSON only with this exact schema:
 Rules:
 - Apply least privilege.
 - Keep expiry as short as practical.
-- For high/critical sensitivity, prefer view-only and lower access attempts.
+- For high/critical sensitivity, prefer restrictive access and lower access attempts.
 - encryptionRequired must always be true.
+- recommendedControls.requireStrictAuditTrail must always be true.
+- recommendedControls.maxTokenTtlMinutes must be between 5 and 720.
 - confidence must be between 0 and 1.
 - decisionSummary must be one concise sentence.
 - reviewChecklist must be exactly 3 reviewer actions.

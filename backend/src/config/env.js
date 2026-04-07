@@ -45,7 +45,7 @@ const env = {
   openAiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
   openAiBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
   enableDevAuthEndpoint: toBoolean(process.env.ENABLE_DEV_AUTH_ENDPOINT, process.env.NODE_ENV !== 'production'),
-  bootstrapLoginEmail: process.env.BOOTSTRAP_LOGIN_EMAIL || 'admin@secure-policy.local',
+  bootstrapLoginEmail: process.env.BOOTSTRAP_LOGIN_EMAIL || 'owner@example.com',
   bootstrapLoginPassword: process.env.BOOTSTRAP_LOGIN_PASSWORD || '',
   bootstrapLoginRole: process.env.BOOTSTRAP_LOGIN_ROLE || 'admin'
 };

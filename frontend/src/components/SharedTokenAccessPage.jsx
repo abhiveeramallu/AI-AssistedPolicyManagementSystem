@@ -76,7 +76,7 @@ export const SharedTokenAccessPage = ({ token, shareId, shareCode }) => {
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(downloadUrl);
-      setStatusMessage(`Edit token validated. Downloaded: ${accessResponse.filename}`);
+      setStatusMessage(`Access validated. Downloaded: ${accessResponse.filename}`);
       return;
     }
 
@@ -97,7 +97,7 @@ export const SharedTokenAccessPage = ({ token, shareId, shareCode }) => {
     }
 
     setPreview(previewPayload);
-    setStatusMessage(`View token validated. Opened: ${accessResponse.filename}`);
+    setStatusMessage(`Access validated. Opened: ${accessResponse.filename}`);
   };
 
   const validateAndOpen = async () => {
@@ -170,7 +170,7 @@ export const SharedTokenAccessPage = ({ token, shareId, shareCode }) => {
   }, [preview]);
 
   const activeClaims = claims || tokenClaims;
-  const permission = activeClaims?.permissionLevel || 'unknown';
+  const expiresAt = activeClaims?.expiresAt || null;
   const tokenMode = Boolean(tokenInput.trim());
   const isImage = preview?.mimeType?.startsWith('image/');
   const isPdf = preview?.mimeType === 'application/pdf';
@@ -180,10 +180,12 @@ export const SharedTokenAccessPage = ({ token, shareId, shareCode }) => {
   return (
     <div className="min-h-screen p-6">
       <div className="mx-auto max-w-6xl rounded-lg border border-[color:var(--ui-border)] bg-[color:var(--ui-surface)] p-6 shadow-panel">
-        <h1 className="ui-title text-2xl font-bold">Shared Token File Access</h1>
-        <p className="ui-text-muted mt-2 text-sm">
-          Token permission: <span className="font-semibold uppercase">{permission}</span>
-        </p>
+        <h1 className="ui-title text-2xl font-bold">Shared File Access</h1>
+        {expiresAt ? (
+          <p className="ui-text-muted mt-2 text-sm">
+            Access expires: {new Date(expiresAt).toLocaleString()}
+          </p>
+        ) : null}
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {tokenMode ? (

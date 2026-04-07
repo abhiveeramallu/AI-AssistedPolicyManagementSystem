@@ -11,6 +11,7 @@ const {
   verifyFriendlyShareCode
 } = require('../services/security/tokenService');
 const { isPolicyExpired } = require('../services/security/accessControlService');
+const { decryptMetadata } = require('../services/security/encryptionService');
 const { writeAuditLog } = require('../utils/auditLogger');
 
 const performTokenValidation = async ({ token, actorId = 'validator', password }) => {
@@ -117,6 +118,12 @@ const getValidatedTokenLogById = async ({ tokenId, password }) => {
   return tokenLog;
 };
 
+const getRemainingUses = (tokenLog) =>
+  Math.max(0, Number(tokenLog.maxUsageCount || 0) - Number(tokenLog.currentUsageCount || 0));
+
+const isTokenLogActive = (tokenLog) =>
+  tokenLog.expiresAt?.getTime() > Date.now() && getRemainingUses(tokenLog) > 0;
+
 const generateToken = asyncHandler(async (req, res) => {
   const fileDoc = await EncryptedFile.findById(req.body.fileId);
 
@@ -132,26 +139,32 @@ const generateToken = asyncHandler(async (req, res) => {
     throw new AppError('Only owner or admin can generate file token', 403);
   }
 
-  if (
-    req.body.permissionLevel &&
-    req.body.permissionLevel !== fileDoc.policy.permissionLevel
-  ) {
-    throw new AppError(
-      `Token permission must match approved file policy permission (${fileDoc.policy.permissionLevel})`,
-      403
-    );
-  }
-
   const tokenPermission = fileDoc.policy.permissionLevel;
+  const policyControls =
+    fileDoc.policy && typeof fileDoc.policy.recommendedControls === 'object'
+      ? fileDoc.policy.recommendedControls
+      : {
+          requireTokenPassword: false,
+          maxTokenTtlMinutes: 180,
+          requireStrictAuditTrail: true
+        };
 
   const remainingMinutes = Math.max(
     1,
     Math.floor((new Date(fileDoc.policy.expiresAt).getTime() - Date.now()) / 60000)
   );
 
-  const boundedExpiryMinutes = Math.min(req.body.expiryMinutes, remainingMinutes);
-  const expiresAt = new Date(Date.now() + boundedExpiryMinutes * 60 * 1000);
   const normalizedAccessPassword = req.body.accessPassword?.trim();
+  if (policyControls.requireTokenPassword && !normalizedAccessPassword) {
+    throw new AppError(
+      'This policy requires a secret password for generated share access',
+      400
+    );
+  }
+
+  const ttlCapMinutes = Number(policyControls.maxTokenTtlMinutes) || 180;
+  const boundedExpiryMinutes = Math.min(req.body.expiryMinutes, remainingMinutes, ttlCapMinutes);
+  const expiresAt = new Date(Date.now() + boundedExpiryMinutes * 60 * 1000);
   const passwordRecord = normalizedAccessPassword
     ? createAccessPasswordRecord(normalizedAccessPassword)
     : {};
@@ -210,7 +223,8 @@ const generateToken = asyncHandler(async (req, res) => {
     expiresAt,
     permissionLevel: tokenPermission,
     maxUsageCount: tokenLog.maxUsageCount,
-    requiresPassword: Boolean(passwordRecord.passwordHash)
+    requiresPassword: Boolean(passwordRecord.passwordHash),
+    policyControls
   });
 });
 
@@ -323,9 +337,129 @@ const resolveShareAccess = asyncHandler(async (req, res) => {
   });
 });
 
+const discoverOwnerSharedFiles = asyncHandler(async (req, res) => {
+  const ownerId = String(req.body.ownerId || '').trim();
+  const tokenLogs = await TokenLog.find({ issuedBy: ownerId }).sort({ createdAt: -1 }).limit(300);
+  const seenFileIds = new Set();
+  const files = [];
+
+  for (const tokenLog of tokenLogs) {
+    if (!isTokenLogActive(tokenLog)) {
+      continue;
+    }
+
+    const fileId = String(tokenLog.fileId || '');
+    if (!fileId || seenFileIds.has(fileId)) {
+      continue;
+    }
+
+    const fileDoc = await EncryptedFile.findById(fileId);
+    if (!fileDoc || isPolicyExpired(fileDoc.policy)) {
+      continue;
+    }
+
+    const metadata = decryptMetadata(fileDoc.metadataEncrypted);
+    seenFileIds.add(fileId);
+    files.push({
+      tokenId: tokenLog.id,
+      fileId: fileDoc.id,
+      fileName: metadata.originalName || fileDoc.id,
+      mimeType: metadata.mimeType || 'application/octet-stream',
+      permissionLevel: tokenLog.permissionLevel,
+      expiresAt: tokenLog.expiresAt,
+      requiresPassword: Boolean(tokenLog.passwordHash),
+      remainingUses: getRemainingUses(tokenLog)
+    });
+  }
+
+  await writeAuditLog({
+    actorId: req.user.id,
+    action: 'token.owner.discover',
+    entityType: 'User',
+    entityId: ownerId,
+    outcome: 'success',
+    details: {
+      resultCount: files.length
+    }
+  });
+
+  return res.status(200).json({
+    ownerId,
+    files
+  });
+});
+
+const openOwnerSharedFile = asyncHandler(async (req, res) => {
+  const ownerId = String(req.body.ownerId || '').trim();
+  const tokenId = String(req.body.tokenId || '').trim();
+  const password = req.body.password;
+  const tokenLog = await TokenLog.findById(tokenId);
+
+  if (!tokenLog || String(tokenLog.issuedBy) !== ownerId) {
+    throw new AppError('No active shared file found for this owner and token reference', 404);
+  }
+
+  const validatedTokenLog = await getValidatedTokenLogById({ tokenId: tokenLog.id, password });
+
+  if (String(validatedTokenLog.issuedBy) !== ownerId) {
+    throw new AppError('No active shared file found for this owner and token reference', 404);
+  }
+
+  const fileDoc = await EncryptedFile.findById(validatedTokenLog.fileId);
+  if (!fileDoc || isPolicyExpired(fileDoc.policy)) {
+    throw new AppError('The shared file is no longer available', 404);
+  }
+
+  const remainingSeconds = Math.max(
+    30,
+    Math.floor((validatedTokenLog.expiresAt.getTime() - Date.now()) / 1000)
+  );
+  const temporaryTokenTtl = Math.min(300, remainingSeconds);
+
+  const { token, decoded } = issueFileAccessToken({
+    fileId: validatedTokenLog.fileId,
+    delegatedBy: validatedTokenLog.issuedBy,
+    permissionLevel: validatedTokenLog.permissionLevel,
+    expiresIn: `${temporaryTokenTtl}s`,
+    maxUsageCount: validatedTokenLog.maxUsageCount,
+    jti: validatedTokenLog.jti
+  });
+
+  validatedTokenLog.status = 'validated';
+  validatedTokenLog.lastValidatedAt = new Date();
+  await validatedTokenLog.save();
+
+  await writeAuditLog({
+    actorId: req.user.id,
+    action: 'token.owner.open',
+    entityType: 'TokenLog',
+    entityId: validatedTokenLog.id,
+    outcome: 'success',
+    details: {
+      ownerId,
+      fileId: validatedTokenLog.fileId,
+      permissionLevel: validatedTokenLog.permissionLevel
+    }
+  });
+
+  return res.status(200).json({
+    token,
+    claims: {
+      fileId: validatedTokenLog.fileId,
+      permissionLevel: validatedTokenLog.permissionLevel,
+      maxUsageCount: validatedTokenLog.maxUsageCount,
+      delegatedBy: validatedTokenLog.issuedBy,
+      expiresAt: new Date(decoded.exp * 1000).toISOString(),
+      requiresPassword: Boolean(validatedTokenLog.passwordHash)
+    }
+  });
+});
+
 module.exports = {
   generateToken,
   validateToken,
   validateSharedFileToken,
-  resolveShareAccess
+  resolveShareAccess,
+  discoverOwnerSharedFiles,
+  openOwnerSharedFile
 };

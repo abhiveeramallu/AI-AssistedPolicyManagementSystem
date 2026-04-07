@@ -45,7 +45,7 @@ services:
       - key: ENABLE_DEV_AUTH_ENDPOINT
         value: "false"
       - key: BOOTSTRAP_LOGIN_EMAIL
-        value: admin@secure-policy.local
+        value: owner@example.com
       - key: BOOTSTRAP_LOGIN_ROLE
         value: admin
       - key: BOOTSTRAP_LOGIN_PASSWORD
@@ -66,5 +66,3 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: VITE_ENABLE_DEV_AUTH
         value: "false"
-      - key: VITE_BOOTSTRAP_LOGIN_EMAIL
-        value: admin@secure-policy.local

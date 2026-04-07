@@ -71,6 +71,12 @@ const uploadFile = asyncHandler(async (req, res) => {
       riskSignals: proposal.approvedPolicy.riskSignals || [],
       decisionSummary: proposal.approvedPolicy.decisionSummary,
       reviewChecklist: proposal.approvedPolicy.reviewChecklist || [],
+      recommendedControls: proposal.approvedPolicy.recommendedControls || {
+        requireTokenPassword: false,
+        maxTokenTtlMinutes: 180,
+        requireStrictAuditTrail: true
+      },
+      riskDrivers: proposal.approvedPolicy.riskDrivers || [],
       uploadModuleRecommendations: proposal.approvedPolicy.uploadModuleRecommendations || [],
       guardrailsApplied: proposal.approvedPolicy.guardrailsApplied || [],
       engine: proposal.approvedPolicy.engine

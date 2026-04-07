@@ -11,7 +11,7 @@ export const FilePreviewModal = ({ preview, onClose }) => {
       <div className="h-[85vh] w-full max-w-5xl rounded-lg border border-[color:var(--ui-border)] bg-[color:var(--ui-surface)] p-4 shadow-panel">
         <div className="flex items-center justify-between border-b border-[color:var(--ui-border)] pb-3">
           <div>
-            <h3 className="ui-title text-lg font-bold">View File</h3>
+            <h3 className="ui-title text-lg font-bold">File Preview</h3>
             <p className="ui-text-muted text-xs">{preview.filename}</p>
           </div>
           <button
@@ -44,7 +44,7 @@ export const FilePreviewModal = ({ preview, onClose }) => {
 
           {!isImage && !isPdf && !isText && !isHtml ? (
             <div className="p-5 text-sm text-[color:var(--ui-muted)]">
-              View-only token is valid, but this file type cannot be previewed in-browser.
+              Access is valid, but this file type cannot be previewed in-browser.
             </div>
           ) : null}
         </div>

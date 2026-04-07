@@ -142,15 +142,15 @@ const getFileById = asyncHandler(async (req, res) => {
     );
 
     if (!isPermissionAtLeast(req.fileToken.permissionLevel, 'view')) {
-      throw new AppError('File token does not allow viewing this file', 403);
+      throw new AppError('File token does not allow access to this file', 403);
     }
 
     if (req.fileToken.permissionLevel === 'view' && !previewRequested) {
-      throw new AppError('View-only token permits preview access only', 403);
+      throw new AppError('This access token permits preview only', 403);
     }
 
     if (req.fileToken.permissionLevel === 'edit' && previewRequested) {
-      throw new AppError('Edit token permits download access only', 403);
+      throw new AppError('This access token permits download only', 403);
     }
   } else {
     authorizeDirectUserAccess(fileDoc, req.user);

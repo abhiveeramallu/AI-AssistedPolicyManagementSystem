@@ -11,6 +11,11 @@ const formatConfidence = (value) => {
   return `${Math.round(parsed * 100)}%`;
 };
 
+const sanitizeAccessText = (value) =>
+  String(value || '')
+    .replace(/\bview\b/gi, 'restricted')
+    .replace(/\bedit\b/gi, 'restricted');
+
 const getRiskBadgeClass = (riskLevel) => {
   const normalized = String(riskLevel || '').toLowerCase();
   if (normalized === 'critical') {
@@ -29,7 +34,7 @@ export const PolicyRecommendationPanel = ({ recommendation }) => {
       <div className="ui-card">
         <h3 className="ui-title text-lg font-bold">AI Recommendation</h3>
         <p className="ui-text-muted mt-2 text-sm">
-          Generate a policy to view secure permission and risk guidance.
+          Generate a policy to view secure access and risk guidance.
         </p>
       </div>
     );
@@ -49,6 +54,11 @@ export const PolicyRecommendationPanel = ({ recommendation }) => {
   const guardrailsApplied = Array.isArray(recommendation.guardrailsApplied)
     ? recommendation.guardrailsApplied
     : [];
+  const riskDrivers = Array.isArray(recommendation.riskDrivers) ? recommendation.riskDrivers : [];
+  const controls =
+    recommendation && typeof recommendation.recommendedControls === 'object'
+      ? recommendation.recommendedControls
+      : null;
   const engineLabel = recommendation.engine || 'unknown';
 
   return (
@@ -61,7 +71,7 @@ export const PolicyRecommendationPanel = ({ recommendation }) => {
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <RecommendationItem label="Permission" value={recommendation.permissionLevel.toUpperCase()} />
+        <RecommendationItem label="Access Profile" value="System Enforced" />
         <RecommendationItem label="Expiry" value={`${recommendation.expiryHours} hours`} />
         <RecommendationItem label="Encryption" value={recommendation.encryptionRequired ? 'Required' : 'Optional'} />
         <RecommendationItem label="Max Attempts" value={recommendation.maxAccessAttempts} />
@@ -77,7 +87,7 @@ export const PolicyRecommendationPanel = ({ recommendation }) => {
           Decision Summary
         </p>
         <p className="mt-1 text-sm text-[color:var(--ui-text)]">
-          {recommendation.decisionSummary || 'No decision summary provided.'}
+          {sanitizeAccessText(recommendation.decisionSummary || 'No decision summary provided.')}
         </p>
       </div>
 
@@ -85,7 +95,7 @@ export const PolicyRecommendationPanel = ({ recommendation }) => {
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--ui-accent)]">
           Risk Explanation
         </p>
-        <p className="mt-1 text-sm text-[color:var(--ui-text)]">{recommendation.riskExplanation}</p>
+        <p className="mt-1 text-sm text-[color:var(--ui-text)]">{sanitizeAccessText(recommendation.riskExplanation)}</p>
       </div>
 
       {riskSignals.length > 0 ? (
@@ -95,8 +105,40 @@ export const PolicyRecommendationPanel = ({ recommendation }) => {
           </p>
           <ul className="mt-2 space-y-1 text-sm text-[color:var(--ui-text)]">
             {riskSignals.map((item) => (
-              <li key={item}>- {item}</li>
+              <li key={item}>- {sanitizeAccessText(item)}</li>
             ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {riskDrivers.length > 0 ? (
+        <div className="ui-card-soft mt-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--ui-accent)]">
+            Risk Driver Breakdown
+          </p>
+          <ul className="mt-2 space-y-2 text-sm text-[color:var(--ui-text)]">
+            {riskDrivers.slice(0, 6).map((driver, index) => (
+              <li key={`${driver.factor}-${index}`} className="rounded-md border border-[color:var(--ui-border)] px-2 py-2">
+                <p className="font-semibold">
+                  {driver.factor}: {Number(driver.impact) > 0 ? '+' : ''}
+                  {driver.impact}
+                </p>
+                <p className="ui-text-muted mt-1 text-xs">{sanitizeAccessText(driver.detail)}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {controls ? (
+        <div className="ui-card-soft mt-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--ui-accent)]">
+            Enforced Controls
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-[color:var(--ui-text)]">
+            <li>- Token password required: {controls.requireTokenPassword ? 'Yes' : 'No'}</li>
+            <li>- Max token TTL: {controls.maxTokenTtlMinutes} minutes</li>
+            <li>- Strict audit trail: {controls.requireStrictAuditTrail ? 'Enabled' : 'Disabled'}</li>
           </ul>
         </div>
       ) : null}
@@ -108,7 +150,7 @@ export const PolicyRecommendationPanel = ({ recommendation }) => {
           </p>
           <ol className="mt-2 list-decimal space-y-1 pl-4 text-sm text-[color:var(--ui-text)]">
             {reviewChecklist.map((item) => (
-              <li key={item}>{item}</li>
+              <li key={item}>{sanitizeAccessText(item)}</li>
             ))}
           </ol>
         </div>
@@ -121,7 +163,7 @@ export const PolicyRecommendationPanel = ({ recommendation }) => {
           </p>
           <ul className="mt-2 space-y-1 text-sm text-[color:var(--ui-text)]">
             {uploadModuleRecommendations.map((item) => (
-              <li key={item}>- {item}</li>
+              <li key={item}>- {sanitizeAccessText(item)}</li>
             ))}
           </ul>
         </div>

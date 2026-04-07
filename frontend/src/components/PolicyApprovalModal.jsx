@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 
+const sanitizeAccessText = (value) =>
+  String(value || '')
+    .replace(/\bview\b/gi, 'restricted')
+    .replace(/\bedit\b/gi, 'restricted');
+
 export const PolicyApprovalModal = ({ isOpen, recommendation, onClose, onConfirm, loading }) => {
   const [useAiRecommendation, setUseAiRecommendation] = useState(true);
-  const [permissionLevel, setPermissionLevel] = useState('view');
   const [expiryHours, setExpiryHours] = useState(24);
   const [maxAccessAttempts, setMaxAccessAttempts] = useState(5);
   const [approvalNote, setApprovalNote] = useState('');
 
   useEffect(() => {
     if (recommendation) {
-      setPermissionLevel(recommendation.permissionLevel);
       setExpiryHours(recommendation.expiryHours);
       setMaxAccessAttempts(recommendation.maxAccessAttempts);
       setUseAiRecommendation(true);
@@ -28,6 +31,10 @@ export const PolicyApprovalModal = ({ isOpen, recommendation, onClose, onConfirm
   const guardrailsApplied = Array.isArray(recommendation.guardrailsApplied)
     ? recommendation.guardrailsApplied
     : [];
+  const recommendedControls =
+    recommendation && typeof recommendation.recommendedControls === 'object'
+      ? recommendation.recommendedControls
+      : null;
 
   const submit = (event) => {
     event.preventDefault();
@@ -37,7 +44,6 @@ export const PolicyApprovalModal = ({ isOpen, recommendation, onClose, onConfirm
 
     onConfirm({
       useAiRecommendation,
-      permissionLevel,
       expiryHours: Number(expiryHours),
       maxAccessAttempts: Number(maxAccessAttempts),
       approvalNote: approvalNote.trim()
@@ -55,11 +61,11 @@ export const PolicyApprovalModal = ({ isOpen, recommendation, onClose, onConfirm
         <div className="ui-card-soft mt-4 text-sm">
           <p className="font-semibold text-[color:var(--ui-accent)]">AI recommended baseline</p>
           <p className="mt-1 text-[color:var(--ui-text)]">
-            {recommendation.permissionLevel.toUpperCase()} access, {recommendation.expiryHours}h expiry,{' '}
+            Enforced access profile with {recommendation.expiryHours}h expiry and{' '}
             {recommendation.maxAccessAttempts} max attempts.
           </p>
           <p className="ui-text-muted mt-2 text-xs">
-            {recommendation.decisionSummary || 'No decision summary was returned.'}
+            {sanitizeAccessText(recommendation.decisionSummary || 'No decision summary was returned.')}
           </p>
         </div>
 
@@ -93,7 +99,7 @@ export const PolicyApprovalModal = ({ isOpen, recommendation, onClose, onConfirm
             </p>
             <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-[color:var(--ui-text)]">
               {reviewChecklist.map((item) => (
-                <li key={item}>{item}</li>
+                <li key={item}>{sanitizeAccessText(item)}</li>
               ))}
             </ol>
           </div>
@@ -112,6 +118,19 @@ export const PolicyApprovalModal = ({ isOpen, recommendation, onClose, onConfirm
           </div>
         ) : null}
 
+        {recommendedControls ? (
+          <div className="ui-card-soft mt-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--ui-accent)]">
+              Enforced Controls
+            </p>
+            <ul className="mt-2 space-y-1 text-xs text-[color:var(--ui-text)]">
+              <li>- Token password required: {recommendedControls.requireTokenPassword ? 'Yes' : 'No'}</li>
+              <li>- Max token TTL: {recommendedControls.maxTokenTtlMinutes} minutes</li>
+              <li>- Strict audit trail: {recommendedControls.requireStrictAuditTrail ? 'Enabled' : 'Disabled'}</li>
+            </ul>
+          </div>
+        ) : null}
+
         <form className="mt-5 space-y-4" onSubmit={submit}>
           <label className="flex items-center gap-3 rounded-md border border-[color:var(--ui-border)] px-3 py-2">
             <input
@@ -126,22 +145,9 @@ export const PolicyApprovalModal = ({ isOpen, recommendation, onClose, onConfirm
 
           {overrideMode ? (
             <div className="rounded-md border border-white/20 bg-white/8 px-3 py-2 text-xs text-[color:var(--ui-text)]">
-              Override mode enabled. Changes to permission/expiry/attempts will be recorded in audit logs.
+              Override mode enabled. Changes to expiry/attempts will be recorded in audit logs.
             </div>
           ) : null}
-
-          <label className="block">
-            <span className="ui-label">Permission level</span>
-            <select
-              disabled={useAiRecommendation}
-              value={permissionLevel}
-              onChange={(event) => setPermissionLevel(event.target.value)}
-              className="ui-input mt-1"
-            >
-              <option value="view">View only</option>
-              <option value="edit">Edit</option>
-            </select>
-          </label>
 
           <label className="block">
             <span className="ui-label">Expiry (hours)</span>

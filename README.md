@@ -101,8 +101,10 @@ Diagram source: `docs/architecture.mmd`.
   - `riskScore`
   - `riskLevel`
   - `riskSignals`
+  - `riskDrivers` (factor-level impact with score contribution)
   - `riskExplanation`
   - `decisionSummary`
+  - `recommendedControls` (`requireTokenPassword`, `maxTokenTtlMinutes`, `requireStrictAuditTrail`)
   - `reviewChecklist` (3 reviewer actions)
   - `uploadModuleRecommendations` (3 concrete hardening actions)
 - Guardrails prevent AI from loosening baseline controls (permission/expiry/attempt caps).
@@ -120,15 +122,18 @@ Diagram source: `docs/architecture.mmd`.
 - Encrypted metadata at rest.
 
 ### 5. Access Control + Token Management
-- Policy-driven `view` / `edit` permissions.
-- Permission lock: generated file token permission must match approved file policy.
+- Policy-driven access permissions.
+- Permission lock: generated file token access scope must match approved file policy.
 - JWT file tokens with expiry and max-usage limits.
 - Optional token secret password (salted + hashed, never stored plaintext).
+- AI-enforced controls after approval:
+  - mandatory token password for high-risk shares
+  - token TTL cap based on risk
 - Token validation endpoint for dashboard and shared-link flow.
 - Friendly share reference support (`tokenId:shareCode`) so recipients do not need full JWT.
 - Strict access behavior:
-  - `view` token: preview-only
-  - `edit` token: download-only
+  - preview-only access for limited scope tokens
+  - download access for elevated scope tokens
 
 ### 6. Secure Storage + Logging
 - Encrypted file blobs only.
@@ -144,10 +149,12 @@ Diagram source: `docs/architecture.mmd`.
 - `DELETE /file/:id`
 - `POST /generate-token`
 - `POST /validate-token`
-- `POST /validate-file-token` (shared-token validation for top JWT input/new page flow)
+- `POST /validate-file-token` (shared-token validation flow)
 - `POST /resolve-share-access` (resolve `shareId + shareCode` into short-lived file-access JWT)
+- `POST /discover-owner-files` (authenticated discovery by owner user ID)
+- `POST /open-owner-file` (authenticated file open by owner ID + per-file password)
 - `POST /auth/register` (create local user account and issue session JWT)
-- `POST /auth/login` (local user login; falls back to bootstrap admin credentials if configured)
+- `POST /auth/login` (local user login; falls back to bootstrap credentials if configured)
 - `GET /auth/dev-token` (development convenience)
 - `GET /auth/me` (resolve authenticated user profile from session JWT)
 
@@ -217,9 +224,7 @@ Copy from `backend/.env.example` and set:
 ### Frontend env (`frontend/.env`)
 Copy from `frontend/.env.example`:
 - `VITE_API_BASE_URL=http://localhost:5050`
-- `VITE_DEFAULT_AUTH_TOKEN=` (optional)
 - `VITE_ENABLE_DEV_AUTH=true` (set `false` in production)
-- `VITE_BOOTSTRAP_LOGIN_EMAIL=admin@secure-policy.local`
 
 ## Run Locally
 
@@ -278,26 +283,20 @@ Notes:
   - `VITE_API_BASE_URL=https://<your-render-backend-url>`
 
 ## End-to-End Usage Flow
-1. Obtain Session JWT:
-   - local dev: auto-issued via `/auth/dev-token` when `VITE_ENABLE_DEV_AUTH=true`
-   - account flow: register via `/auth/register` then sign in via `/auth/login`
-   - deployed/prod admin fallback: use bootstrap credentials through `/auth/login` with `BOOTSTRAP_LOGIN_*` env vars
+1. Open app and sign up or login (`/auth/register`, `/auth/login`). JWT is managed internally.
 2. Upload file + fill metadata form.
 3. Generate policy (`/generate-policy`).
 4. Confirm policy (exact AI recommendation or controlled override + approval note).
 5. Secure upload (`/upload`) after approval.
-6. Select encrypted file and generate token (permission is locked to approved policy).
-7. (Optional) Set secret password while generating token.
+6. Select encrypted file and generate share access (permission is locked to approved policy).
+7. (Optional) Set secret password while generating share access.
 8. Share either:
    - `Share Link` (recommended), or
-   - `Share Ref` (`tokenId:shareCode`), or
-   - full JWT token (still supported).
-9. Recipient opens top `Access Files (Share)` and pastes the link/ref/token, then clicks `Access Files`.
-10. In the new shared access page, click `Unlock & Open File`:
-   - If token was password-protected, enter the secret password.
-11. Access behavior:
-   - `view` token opens in-browser preview.
-   - `edit` token downloads the file.
+   - `Share Ref` (`tokenId:shareCode`).
+9. Recipient logs in, enters owner user ID in **Access Shared Files by User ID**, and fetches available files.
+10. Recipient enters file password (if required) and opens file:
+   - restricted mode opens in-browser preview.
+   - elevated mode downloads the file.
 
 ## Validation Completed
 - Backend syntax check: `npm run check` passed.

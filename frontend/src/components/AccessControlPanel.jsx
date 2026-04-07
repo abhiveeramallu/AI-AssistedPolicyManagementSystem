@@ -10,8 +10,17 @@ const formatExpiry = (policy, selectedFile) => {
   return '-';
 };
 
+const sanitizeAccessText = (value) =>
+  String(value || '')
+    .replace(/\bview\b/gi, 'restricted')
+    .replace(/\bedit\b/gi, 'restricted');
+
 export const AccessControlPanel = ({ approvedPolicy, selectedFile }) => {
   const activePolicy = selectedFile?.policy || approvedPolicy;
+  const controls =
+    activePolicy && typeof activePolicy.recommendedControls === 'object'
+      ? activePolicy.recommendedControls
+      : null;
 
   return (
     <div className="ui-card">
@@ -28,8 +37,8 @@ export const AccessControlPanel = ({ approvedPolicy, selectedFile }) => {
               : 'Pending upload approved policy'}
           </div>
           <div className="flex items-center justify-between rounded-lg border border-[color:var(--ui-border)] px-3 py-2">
-            <span>Permission</span>
-            <span className="font-semibold uppercase text-[color:var(--ui-accent)]">{activePolicy.permissionLevel}</span>
+            <span>Access Profile</span>
+            <span className="font-semibold uppercase text-[color:var(--ui-accent)]">System Enforced</span>
           </div>
           <div className="flex items-center justify-between rounded-lg border border-[color:var(--ui-border)] px-3 py-2">
             <span>Risk Level</span>
@@ -49,10 +58,22 @@ export const AccessControlPanel = ({ approvedPolicy, selectedFile }) => {
             <span>Encryption</span>
             <span className="font-semibold">AES-256 Required</span>
           </div>
+          {controls ? (
+            <>
+              <div className="flex items-center justify-between rounded-lg border border-[color:var(--ui-border)] px-3 py-2">
+                <span>Token Password</span>
+                <span className="font-semibold">{controls.requireTokenPassword ? 'Required' : 'Optional'}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-[color:var(--ui-border)] px-3 py-2">
+                <span>Token TTL Cap</span>
+                <span className="font-semibold">{controls.maxTokenTtlMinutes} minutes</span>
+              </div>
+            </>
+          ) : null}
           {activePolicy.decisionSummary ? (
             <div className="ui-card-soft text-xs text-[color:var(--ui-text)]">
               <p className="ui-text-muted uppercase tracking-[0.12em]">Policy Summary</p>
-              <p className="mt-1">{activePolicy.decisionSummary}</p>
+              <p className="mt-1">{sanitizeAccessText(activePolicy.decisionSummary)}</p>
             </div>
           ) : null}
         </div>

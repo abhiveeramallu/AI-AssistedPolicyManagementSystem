@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { apiClient, getApiBaseUrl, isDevAuthEnabled } from './api/client';
+import { apiClient, getApiBaseUrl } from './api/client';
 import { UploadDropzone } from './components/UploadDropzone';
 import { PolicyRecommendationPanel } from './components/PolicyRecommendationPanel';
 import { PolicyApprovalModal } from './components/PolicyApprovalModal';
@@ -10,8 +10,12 @@ import { AccessControlPanel } from './components/AccessControlPanel';
 import { EncryptedFileList } from './components/EncryptedFileList';
 import { TokenStatusView } from './components/TokenStatusView';
 import { SharedTokenAccessPage } from './components/SharedTokenAccessPage';
+import { AuthPage } from './components/AuthPage';
+import { UserFileAccessPanel } from './components/UserFileAccessPanel';
+import { FilePreviewModal } from './components/FilePreviewModal';
 
 const TOKEN_STORAGE_KEY = 'secure-policy-user-token';
+
 const NAV_SECTIONS = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'policies', label: 'Policies' },
@@ -31,12 +35,10 @@ const policyFormSchema = z.object({
   purpose: z.string().min(10, 'Purpose must be at least 10 characters'),
   sensitivity: z.enum(['low', 'medium', 'high', 'critical']),
   durationHours: z.number().int().min(1).max(2160),
-  desiredPermission: z.enum(['view', 'edit']),
   maxAccessAttempts: z.number().int().min(1).max(20)
 });
 
-const getInitialToken = () =>
-  localStorage.getItem(TOKEN_STORAGE_KEY) || import.meta.env.VITE_DEFAULT_AUTH_TOKEN || '';
+const getInitialToken = () => localStorage.getItem(TOKEN_STORAGE_KEY) || '';
 
 const decodeJwtPayload = (token) => {
   try {
@@ -65,69 +67,11 @@ const getSharedAccessFromUrl = () => {
   };
 };
 
-const normalizeShareCode = (value) =>
+const isValidObjectId = (value) => /^[a-fA-F0-9]{24}$/.test(String(value || '').trim());
+const sanitizeAccessText = (value) =>
   String(value || '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '');
-
-const safeDecode = (value) => {
-  try {
-    return decodeURIComponent(value);
-  } catch (_error) {
-    return value;
-  }
-};
-
-const parseShareInput = (rawInput) => {
-  const value = String(rawInput || '').trim();
-  if (!value) {
-    return { error: 'Enter a share link, share reference, or file token.' };
-  }
-
-  try {
-    const parsedUrl = new URL(value);
-    const params = parsedUrl.searchParams;
-    const sharedToken = (params.get('shared_token') || '').trim();
-    if (sharedToken) {
-      return { token: sharedToken };
-    }
-
-    const shareId = (params.get('share_id') || '').trim();
-    const shareCode = normalizeShareCode(params.get('share_code') || '');
-    if (/^[a-fA-F0-9]{24}$/.test(shareId) && shareCode.length >= 8) {
-      return { shareId, shareCode };
-    }
-  } catch (_error) {
-    // Continue with non-URL parsing.
-  }
-
-  const queryStringMatch = value.match(/[?&]share_id=([^&\s]+).*?[?&]share_code=([^&\s]+)/i);
-  if (queryStringMatch) {
-    const shareId = safeDecode(queryStringMatch[1]).trim();
-    const shareCode = normalizeShareCode(safeDecode(queryStringMatch[2]));
-    if (/^[a-fA-F0-9]{24}$/.test(shareId) && shareCode.length >= 8) {
-      return { shareId, shareCode };
-    }
-  }
-
-  const shareRefMatch = value.match(/^([a-fA-F0-9]{24})\s*[:|]\s*([A-Za-z0-9-]{8,64})$/);
-  if (shareRefMatch) {
-    return {
-      shareId: shareRefMatch[1],
-      shareCode: normalizeShareCode(shareRefMatch[2])
-    };
-  }
-
-  const decoded = decodeJwtPayload(value);
-  if (decoded?.type === 'file_access' && decoded?.fileId) {
-    return { token: value };
-  }
-
-  return {
-    error:
-      'Invalid share format. Use a full share link, tokenId:shareCode, or a file access JWT.'
-  };
-};
+    .replace(/\bview\b/gi, 'restricted')
+    .replace(/\bedit\b/gi, 'restricted');
 
 function App() {
   const sharedAccessFromUrl = getSharedAccessFromUrl();
@@ -142,13 +86,15 @@ function App() {
   }
 
   const [authToken, setAuthToken] = useState(getInitialToken);
-  const [authMode, setAuthMode] = useState('login');
   const [currentUser, setCurrentUser] = useState(null);
-  const [loginEmail, setLoginEmail] = useState(import.meta.env.VITE_BOOTSTRAP_LOGIN_EMAIL || '');
-  const [loginPassword, setLoginPassword] = useState('');
+  const [authMode, setAuthMode] = useState('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
   const [registerName, setRegisterName] = useState('');
-  const [registerRole, setRegisterRole] = useState('editor');
-  const [sharedTokenInput, setSharedTokenInput] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [authStatus, setAuthStatus] = useState('');
+
   const [localFile, setLocalFile] = useState(null);
   const [fileInputError, setFileInputError] = useState('');
   const [policyData, setPolicyData] = useState(null);
@@ -164,6 +110,14 @@ function App() {
   const [loadingAction, setLoadingAction] = useState('');
   const [activeSection, setActiveSection] = useState('dashboard');
 
+  const [ownerLookupId, setOwnerLookupId] = useState('');
+  const [ownerLookupFiles, setOwnerLookupFiles] = useState([]);
+  const [ownerLookupLoading, setOwnerLookupLoading] = useState(false);
+  const [ownerLookupError, setOwnerLookupError] = useState('');
+  const [ownerLookupStatus, setOwnerLookupStatus] = useState('');
+  const [ownerOpeningTokenId, setOwnerOpeningTokenId] = useState('');
+  const [sharedPreview, setSharedPreview] = useState(null);
+
   const {
     register,
     handleSubmit,
@@ -175,7 +129,6 @@ function App() {
       purpose: '',
       sensitivity: 'medium',
       durationHours: 24,
-      desiredPermission: 'view',
       maxAccessAttempts: 5
     }
   });
@@ -196,45 +149,16 @@ function App() {
     : '-';
   const activeEngine = policyData?.recommendation?.engine || activePolicy?.engine || '-';
   const activeDecisionSummary =
-    policyData?.recommendation?.decisionSummary ||
-    activePolicy?.decisionSummary ||
-    'Generate and approve a policy to view decision summary.';
+    sanitizeAccessText(
+      policyData?.recommendation?.decisionSummary ||
+      activePolicy?.decisionSummary ||
+      'Generate and approve a policy to view decision summary.'
+    );
   const activePolicyExpiry = activePolicy?.expiresAt
     ? new Date(activePolicy.expiresAt).toLocaleString()
     : activePolicy?.expiryHours
       ? `${activePolicy.expiryHours} hours`
       : '-';
-
-  useEffect(() => {
-    if (authToken || !isDevAuthEnabled) return;
-
-    const bootstrapToken = async () => {
-      try {
-        const response = await apiClient.fetchDevToken();
-        setAuthToken(response.token);
-        setCurrentUser(response.user || null);
-        setStatusMessage('Development JWT issued automatically.');
-      } catch (_error) {
-        setErrorMessage('Unable to auto-issue development JWT. Provide a valid Session JWT.');
-      }
-    };
-
-    bootstrapToken();
-  }, [authToken]);
-
-  useEffect(() => {
-    const handleTokenRefresh = (event) => {
-      const refreshedToken = event?.detail?.token;
-      if (refreshedToken) {
-        setAuthToken(refreshedToken);
-      }
-    };
-
-    window.addEventListener('auth-token-refreshed', handleTokenRefresh);
-    return () => {
-      window.removeEventListener('auth-token-refreshed', handleTokenRefresh);
-    };
-  }, []);
 
   useEffect(() => {
     localStorage.setItem(TOKEN_STORAGE_KEY, authToken);
@@ -247,6 +171,7 @@ function App() {
     }
 
     let cancelled = false;
+
     const hydrateUser = async () => {
       try {
         const response = await apiClient.getCurrentUser(authToken);
@@ -256,6 +181,7 @@ function App() {
       } catch (_error) {
         if (!cancelled) {
           setCurrentUser(null);
+          setAuthToken('');
         }
       }
     };
@@ -266,6 +192,14 @@ function App() {
       cancelled = true;
     };
   }, [authToken]);
+
+  useEffect(() => {
+    return () => {
+      if (sharedPreview?.url) {
+        URL.revokeObjectURL(sharedPreview.url);
+      }
+    };
+  }, [sharedPreview]);
 
   const clearMessages = () => {
     setErrorMessage('');
@@ -287,20 +221,109 @@ function App() {
 
   const loadFiles = async () => {
     if (!authToken) return;
-
     const response = await apiClient.listFiles(authToken);
-    setFiles(response.files || []);
+    const loadedFiles = response.files || [];
+    setFiles(loadedFiles);
+
+    if (selectedStoredFile) {
+      const updatedSelection = loadedFiles.find((item) => item.id === selectedStoredFile.id) || null;
+      setSelectedStoredFile(updatedSelection);
+    }
   };
 
   useEffect(() => {
+    if (!authToken) {
+      setFiles([]);
+      setSelectedStoredFile(null);
+      return;
+    }
+
     withActionState('load-files', loadFiles);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authToken]);
 
+  const runAuthAction = async (callback) => {
+    setAuthError('');
+    setAuthStatus('');
+    setAuthLoading(true);
+
+    try {
+      await callback();
+    } catch (error) {
+      setAuthError(error.message || 'Authentication failed');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const onLogin = () =>
+    runAuthAction(async () => {
+      const email = authEmail.trim();
+      const password = authPassword;
+
+      if (!email) throw new Error('Email is required');
+      if (!password || password.length < 8) {
+        throw new Error('Password must be at least 8 characters');
+      }
+
+      const response = await apiClient.login({ email, password });
+      setAuthToken(response.token);
+      setCurrentUser(response.user || null);
+      setAuthPassword('');
+      setAuthStatus('Signed in successfully.');
+    });
+
+  const onRegister = () =>
+    runAuthAction(async () => {
+      const email = authEmail.trim();
+      const password = authPassword;
+      const name = registerName.trim();
+
+      if (!email) throw new Error('Email is required');
+      if (!password || password.length < 8) {
+        throw new Error('Password must be at least 8 characters');
+      }
+
+      const response = await apiClient.register({
+        email,
+        password,
+        name: name || undefined,
+        role: 'editor'
+      });
+
+      setAuthToken(response.token);
+      setCurrentUser(response.user || null);
+      setAuthPassword('');
+      setAuthStatus('Account created and signed in successfully.');
+    });
+
+  const onLogout = () => {
+    setAuthToken('');
+    setCurrentUser(null);
+    setPolicyData(null);
+    setApprovedPolicy(null);
+    setSelectedStoredFile(null);
+    setGeneratedToken('');
+    setGeneratedShareRef('');
+    setGeneratedShareLink('');
+    setOwnerLookupId('');
+    setOwnerLookupFiles([]);
+    setOwnerLookupError('');
+    setOwnerLookupStatus('');
+
+    if (sharedPreview?.url) {
+      URL.revokeObjectURL(sharedPreview.url);
+    }
+    setSharedPreview(null);
+
+    setFiles([]);
+    setStatusMessage('Signed out.');
+  };
+
   const onGeneratePolicy = handleSubmit((formValues) =>
     withActionState('generate-policy', async () => {
-      if (!authToken) throw new Error('Session JWT is required');
-      if (!localFile) throw new Error('Upload module requires selecting a file first');
+      if (!authToken) throw new Error('Login is required');
+      if (!localFile) throw new Error('Select a file before generating policy');
 
       const policyPayload = {
         ...formValues,
@@ -312,7 +335,7 @@ function App() {
       const response = await apiClient.generatePolicy(authToken, policyPayload);
       setPolicyData(response);
       setApprovedPolicy(null);
-      setStatusMessage('AI recommendation generated. Review and approve before upload.');
+      setStatusMessage('AI recommendation generated. Review and confirm policy.');
     })
   );
 
@@ -328,22 +351,20 @@ function App() {
 
       if (!overrides.useAiRecommendation) {
         approvalPayload.overrides = {
-          permissionLevel: overrides.permissionLevel,
           expiryHours: overrides.expiryHours,
           maxAccessAttempts: overrides.maxAccessAttempts
         };
       }
 
       const response = await apiClient.approvePolicy(authToken, approvalPayload);
-
       setApprovedPolicy(response.approvedPolicy);
       setApprovalModalOpen(false);
-      setStatusMessage('Policy approved and ready for enforcement.');
+      setStatusMessage('Policy approved and ready for secure upload.');
     });
 
   const onUpload = () =>
     withActionState('upload-file', async () => {
-      if (!authToken) throw new Error('Session JWT is required');
+      if (!authToken) throw new Error('Login is required');
       if (!localFile) throw new Error('No file selected');
       if (!policyData?.proposalId || !approvedPolicy) {
         throw new Error('Policy approval is required before secure upload');
@@ -363,6 +384,7 @@ function App() {
     withActionState('generate-token', async () => {
       const response = await apiClient.generateFileToken(authToken, payload);
       setGeneratedToken(response.token);
+
       const shareRef = response.shareRef || '';
       const shareLink =
         response.shareId && response.shareCode
@@ -371,8 +393,7 @@ function App() {
 
       setGeneratedShareRef(shareRef);
       setGeneratedShareLink(shareLink);
-      setSharedTokenInput(shareLink || shareRef || response.token || '');
-      setStatusMessage('Secure token generated with a user-friendly share reference.');
+      setStatusMessage('Share access generated. Use Share Link or Share Ref only.');
     });
 
   const onDeleteFile = (id) =>
@@ -382,90 +403,9 @@ function App() {
       await loadFiles();
     });
 
-  const onOpenSharedTokenPage = () => {
-    clearMessages();
-    const parsed = parseShareInput(sharedTokenInput);
-    if (parsed.error) {
-      setErrorMessage(parsed.error);
-      return;
-    }
-
-    const targetUrl = parsed.token
-      ? `${window.location.origin}${window.location.pathname}?shared_token=${encodeURIComponent(parsed.token)}`
-      : `${window.location.origin}${window.location.pathname}?share_id=${encodeURIComponent(parsed.shareId)}&share_code=${encodeURIComponent(parsed.shareCode)}`;
-    const newTab = window.open(targetUrl, '_blank', 'noopener,noreferrer');
-
-    if (!newTab) {
-      setErrorMessage('Unable to open new tab. Allow pop-ups for this site and try again.');
-      return;
-    }
-
-    setStatusMessage('Opened shared file access page in a new tab.');
-  };
-
-  const onLogin = () =>
-    withActionState('auth-login', async () => {
-      const email = loginEmail.trim();
-      const password = loginPassword;
-
-      if (!email) {
-        throw new Error('Bootstrap login email is required');
-      }
-
-      if (!password || password.length < 8) {
-        throw new Error('Bootstrap login password must be at least 8 characters');
-      }
-
-      const response = await apiClient.login({ email, password });
-      setAuthToken(response.token);
-      setCurrentUser(response.user || null);
-      setLoginPassword('');
-      setStatusMessage('Login successful. Session JWT issued.');
-    });
-
-  const onRegister = () =>
-    withActionState('auth-register', async () => {
-      const email = loginEmail.trim();
-      const password = loginPassword;
-      const name = registerName.trim();
-
-      if (!email) {
-        throw new Error('Registration email is required');
-      }
-
-      if (!password || password.length < 8) {
-        throw new Error('Registration password must be at least 8 characters');
-      }
-
-      const response = await apiClient.register({
-        email,
-        password,
-        name: name || undefined,
-        role: registerRole
-      });
-
-      setAuthToken(response.token);
-      setCurrentUser(response.user || null);
-      setLoginPassword('');
-      setStatusMessage('Account created and logged in successfully.');
-    });
-
-  const onLogout = () => {
-    setAuthToken('');
-    setCurrentUser(null);
-    setPolicyData(null);
-    setApprovedPolicy(null);
-    setSelectedStoredFile(null);
-    setGeneratedToken('');
-    setGeneratedShareRef('');
-    setGeneratedShareLink('');
-    setSharedTokenInput('');
-    setFiles([]);
-    setStatusMessage('Signed out.');
-  };
-
   const handleFileSelect = (file) => {
     setFileInputError('');
+
     if (!file) {
       setLocalFile(null);
       return;
@@ -480,6 +420,149 @@ function App() {
     setLocalFile(file);
   };
 
+  const openSharedBlobWithPermission = async ({ claims, accessToken, password }) => {
+    const fileId = claims?.fileId;
+    const permissionLevel = String(claims?.permissionLevel || 'view').toLowerCase();
+
+    if (!fileId) {
+      throw new Error('Unable to resolve shared file id');
+    }
+
+    const accessResponse = await apiClient.accessFileWithToken({
+      fileId,
+      token: accessToken,
+      preview: permissionLevel === 'view',
+      password
+    });
+
+    if (permissionLevel === 'edit') {
+      const downloadUrl = URL.createObjectURL(accessResponse.blob);
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = accessResponse.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(downloadUrl);
+      return {
+        mode: 'download',
+        filename: accessResponse.filename
+      };
+    }
+
+    if (sharedPreview?.url) {
+      URL.revokeObjectURL(sharedPreview.url);
+    }
+
+    const previewUrl = URL.createObjectURL(accessResponse.blob);
+    const previewPayload = {
+      url: previewUrl,
+      filename: accessResponse.filename,
+      mimeType: accessResponse.mimeType,
+      textContent: ''
+    };
+
+    if ((accessResponse.mimeType || '').startsWith('text/')) {
+      previewPayload.textContent = await accessResponse.blob.text();
+    }
+
+    setSharedPreview(previewPayload);
+    return {
+      mode: 'preview',
+      filename: accessResponse.filename
+    };
+  };
+
+  const onDiscoverOwnerFiles = async () => {
+    setOwnerLookupError('');
+    setOwnerLookupStatus('');
+
+    const trimmedOwnerId = ownerLookupId.trim();
+    if (!isValidObjectId(trimmedOwnerId)) {
+      setOwnerLookupError('Enter a valid owner user ID (24-character id).');
+      return;
+    }
+
+    setOwnerLookupLoading(true);
+
+    try {
+      const response = await apiClient.discoverOwnerFiles(authToken, {
+        ownerId: trimmedOwnerId
+      });
+
+      setOwnerLookupFiles(response.files || []);
+      setOwnerLookupStatus(`${(response.files || []).length} file(s) available for access.`);
+    } catch (error) {
+      setOwnerLookupError(error.message || 'Unable to discover shared files for this owner.');
+      setOwnerLookupFiles([]);
+    } finally {
+      setOwnerLookupLoading(false);
+    }
+  };
+
+  const onOpenOwnerFile = async (file, password) => {
+    setOwnerLookupError('');
+    setOwnerLookupStatus('');
+
+    const trimmedOwnerId = ownerLookupId.trim();
+    const trimmedPassword = String(password || '').trim();
+
+    if (!isValidObjectId(trimmedOwnerId)) {
+      setOwnerLookupError('Enter a valid owner user ID before opening file.');
+      return;
+    }
+
+    if (file.requiresPassword && trimmedPassword.length < 6) {
+      setOwnerLookupError('This file requires password (minimum 6 characters).');
+      return;
+    }
+
+    setOwnerOpeningTokenId(file.tokenId);
+
+    try {
+      const opened = await apiClient.openOwnerFile(authToken, {
+        ownerId: trimmedOwnerId,
+        tokenId: file.tokenId,
+        password: trimmedPassword || undefined
+      });
+
+      const result = await openSharedBlobWithPermission({
+        claims: opened.claims,
+        accessToken: opened.token,
+        password: trimmedPassword || undefined
+      });
+
+      if (result.mode === 'download') {
+        setOwnerLookupStatus(`Downloaded: ${result.filename}`);
+      } else {
+        setOwnerLookupStatus(`Opened preview: ${result.filename}`);
+      }
+    } catch (error) {
+      setOwnerLookupError(error.message || 'Unable to open shared file.');
+    } finally {
+      setOwnerOpeningTokenId('');
+    }
+  };
+
+  if (!authToken) {
+    return (
+      <AuthPage
+        mode={authMode}
+        onModeChange={setAuthMode}
+        email={authEmail}
+        onEmailChange={setAuthEmail}
+        password={authPassword}
+        onPasswordChange={setAuthPassword}
+        name={registerName}
+        onNameChange={setRegisterName}
+        onSubmit={authMode === 'register' ? onRegister : onLogin}
+        loading={authLoading}
+        errorMessage={authError}
+        statusMessage={authStatus}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen text-[color:var(--ui-text)]">
       <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6 lg:px-8">
@@ -492,18 +575,36 @@ function App() {
               API: {getApiBaseUrl()} | AI policy recommendation with enforced human approval.
             </p>
           </div>
-          <nav className="mt-3 flex items-center gap-5 text-xs font-semibold uppercase tracking-[0.14em] md:mt-0">
-            {NAV_SECTIONS.map((section) => (
-              <button
-                key={section.id}
-                type="button"
-                onClick={() => setActiveSection(section.id)}
-                className={`ui-nav-item ${activeSection === section.id ? 'ui-nav-item-active' : ''}`}
-              >
-                {section.label}
-              </button>
-            ))}
-          </nav>
+
+          <div className="mt-4 flex items-center gap-4 md:mt-0">
+            <nav className="flex items-center gap-5 text-xs font-semibold uppercase tracking-[0.14em]">
+              {NAV_SECTIONS.map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  onClick={() => setActiveSection(section.id)}
+                  className={`ui-nav-item ${activeSection === section.id ? 'ui-nav-item-active' : ''}`}
+                >
+                  {section.label}
+                </button>
+              ))}
+            </nav>
+
+            <div className="hidden rounded-md border border-[color:var(--ui-border)] bg-[color:var(--ui-surface-soft)] px-3 py-2 text-right md:block">
+              <p className="text-xs font-semibold text-[color:var(--ui-text)]">{currentUser?.email || 'Signed in'}</p>
+              <p className="ui-text-muted text-[10px] uppercase tracking-[0.12em]">
+                USER ID: {currentUser?.id || '-'}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onLogout}
+              className="ui-btn-outline"
+            >
+              Sign Out
+            </button>
+          </div>
         </header>
 
         <section className="ui-card mt-5">
@@ -537,7 +638,9 @@ function App() {
               <div className="ui-card-soft">
                 <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Token Status</p>
                 <p className="mt-1 text-sm font-semibold text-[color:var(--ui-text)]">
-                  {generatedToken ? 'Token issued for selected encrypted file' : 'No token issued in this session'}
+                  {generatedShareLink || generatedShareRef
+                    ? 'Share access configured for selected file'
+                    : 'No share access generated in this session'}
                 </p>
               </div>
             </div>
@@ -546,10 +649,8 @@ function App() {
           {activeSection === 'policies' ? (
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="ui-card-soft">
-                <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Recommended Permission</p>
-                <p className="mt-1 text-sm font-semibold text-[color:var(--ui-accent)]">
-                  {(policyData?.recommendation?.permissionLevel || activePolicy?.permissionLevel || '-').toUpperCase()}
-                </p>
+                <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Access Profile</p>
+                <p className="mt-1 text-sm font-semibold text-[color:var(--ui-accent)]">System Enforced</p>
               </div>
               <div className="ui-card-soft">
                 <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Policy Expiry Window</p>
@@ -589,17 +690,15 @@ function App() {
           {activeSection === 'tokens' ? (
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="ui-card-soft">
-                <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Token Permission</p>
-                <p className="mt-1 text-sm font-semibold text-[color:var(--ui-accent)]">
-                  {(generatedTokenClaims?.permissionLevel || activePolicy?.permissionLevel || '-').toUpperCase()}
-                </p>
+                <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Access Mode</p>
+                <p className="mt-1 text-sm font-semibold text-[color:var(--ui-accent)]">Auto Derived</p>
               </div>
               <div className="ui-card-soft">
                 <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Token Expiry</p>
                 <p className="mt-1 text-sm font-semibold text-[color:var(--ui-text)]">
                   {generatedTokenClaims?.exp
                     ? new Date(generatedTokenClaims.exp * 1000).toLocaleString()
-                    : 'Issue a token to view expiry'}
+                    : 'Generate share access to view expiry'}
                 </p>
               </div>
               <div className="ui-card-soft">
@@ -611,147 +710,24 @@ function App() {
               <div className="ui-card-soft">
                 <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Access Behavior</p>
                 <p className="mt-1 text-sm font-semibold text-[color:var(--ui-text)]">
-                  View tokens open in-browser preview. Edit tokens download the file.
+                  Access mode is policy-driven and enforced automatically. Password is enforced if configured.
                 </p>
               </div>
             </div>
           ) : null}
         </section>
 
-        <section className="ui-card mt-5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setAuthMode('login')}
-                className={authMode === 'login' ? 'ui-btn-primary' : 'ui-btn-secondary'}
-              >
-                Login
-              </button>
-              <button
-                type="button"
-                onClick={() => setAuthMode('register')}
-                className={authMode === 'register' ? 'ui-btn-primary' : 'ui-btn-secondary'}
-              >
-                Register
-              </button>
-            </div>
-            {authToken ? (
-              <button
-                type="button"
-                onClick={onLogout}
-                className="ui-btn-outline"
-              >
-                Sign Out
-              </button>
-            ) : null}
-          </div>
-
-          <div className="mt-3 grid gap-3 md:grid-cols-[1fr,1fr,auto]">
-            <label className="block">
-              <span className="ui-label">Email</span>
-              <input
-                value={loginEmail}
-                onChange={(event) => setLoginEmail(event.target.value)}
-                type="email"
-                autoComplete="username"
-                placeholder="you@example.com"
-                className="ui-input mt-1 text-xs"
-              />
-            </label>
-            <label className="block">
-              <span className="ui-label">Password</span>
-              <input
-                value={loginPassword}
-                onChange={(event) => setLoginPassword(event.target.value)}
-                type="password"
-                autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
-                minLength={8}
-                maxLength={128}
-                placeholder="Enter password"
-                className="ui-input mt-1 text-xs"
-              />
-            </label>
-            <div className="flex items-end">
-              <button
-                type="button"
-                onClick={authMode === 'login' ? onLogin : onRegister}
-                disabled={isBusy}
-                className="ui-btn-primary w-full md:w-auto"
-              >
-                {loadingAction === 'auth-login' || loadingAction === 'auth-register'
-                  ? authMode === 'login'
-                    ? 'Signing in...'
-                    : 'Creating...'
-                  : authMode === 'login'
-                    ? 'Sign In'
-                    : 'Create Account'}
-              </button>
-            </div>
-          </div>
-
-          {authMode === 'register' ? (
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <label className="block">
-                <span className="ui-label">Display Name (optional)</span>
-                <input
-                  value={registerName}
-                  onChange={(event) => setRegisterName(event.target.value)}
-                  maxLength={80}
-                  placeholder="Your name"
-                  className="ui-input mt-1 text-xs"
-                />
-              </label>
-              <label className="block">
-                <span className="ui-label">Role</span>
-                <select
-                  value={registerRole}
-                  onChange={(event) => setRegisterRole(event.target.value)}
-                  className="ui-input mt-1 text-xs"
-                >
-                  <option value="editor">Editor</option>
-                  <option value="viewer">Viewer</option>
-                </select>
-              </label>
-            </div>
-          ) : null}
-
-          {currentUser ? (
-            <p className="ui-text-muted mt-3 text-xs">
-              Signed in as <span className="font-semibold text-[color:var(--ui-text)]">{currentUser.email}</span> (
-              {String(currentUser.role || '').toUpperCase()})
-            </p>
-          ) : null}
-
-          <label className="ui-label mt-4 block">Session JWT</label>
-          <input
-            value={authToken}
-            onChange={(event) => setAuthToken(event.target.value)}
-            placeholder="Paste backend-issued user JWT"
-            className="ui-input mt-1 text-xs"
-          />
-
-          <label className="ui-label mt-4 block">Access Files (Share)</label>
-          <div className="mt-1 flex flex-col gap-2 md:flex-row">
-            <input
-              value={sharedTokenInput}
-              onChange={(event) => setSharedTokenInput(event.target.value)}
-              placeholder="Paste share link, share ref (tokenId:code), or file token"
-              className="ui-input w-full text-xs"
-            />
-            <button
-              type="button"
-              onClick={onOpenSharedTokenPage}
-              disabled={isBusy || !sharedTokenInput.trim()}
-              className="ui-btn-primary"
-            >
-              Access Files
-            </button>
-          </div>
-          <p className="ui-text-muted mt-2 text-xs">
-            Opens a new page where share access is validated, password-checked, and then unlocked.
-          </p>
-        </section>
+        <UserFileAccessPanel
+          ownerId={ownerLookupId}
+          onOwnerIdChange={setOwnerLookupId}
+          onDiscover={onDiscoverOwnerFiles}
+          discovering={ownerLookupLoading}
+          files={ownerLookupFiles}
+          onOpenFile={onOpenOwnerFile}
+          openingTokenId={ownerOpeningTokenId}
+          errorMessage={ownerLookupError}
+          statusMessage={ownerLookupStatus}
+        />
 
         {errorMessage ? (
           <div className="ui-alert-error mt-4">{errorMessage}</div>
@@ -816,17 +792,6 @@ function App() {
                   {errors.durationHours ? (
                     <p className="mt-1 text-xs text-[color:var(--ui-accent)]">{errors.durationHours.message}</p>
                   ) : null}
-                </label>
-
-                <label className="text-sm">
-                  <span className="ui-label">Desired Permission</span>
-                  <select
-                    {...register('desiredPermission')}
-                    className="ui-input mt-1"
-                  >
-                    <option value="view">View</option>
-                    <option value="edit">Edit</option>
-                  </select>
                 </label>
 
                 <label className="text-sm md:col-span-2">
@@ -910,6 +875,16 @@ function App() {
         onClose={() => setApprovalModalOpen(false)}
         onConfirm={onApprovePolicy}
         loading={loadingAction === 'approve-policy'}
+      />
+
+      <FilePreviewModal
+        preview={sharedPreview}
+        onClose={() => {
+          if (sharedPreview?.url) {
+            URL.revokeObjectURL(sharedPreview.url);
+          }
+          setSharedPreview(null);
+        }}
       />
     </div>
   );

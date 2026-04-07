@@ -5,30 +5,21 @@ const { encryptMetadata, decryptMetadata } = require('../services/security/encry
 const { generatePolicyRecommendation } = require('../services/ai/policyEngineService');
 const { writeAuditLog } = require('../utils/auditLogger');
 
-const applyApprovalOverrides = (recommendedPolicy, overrides = {}, approverRole) => {
-  const proposedPermission = overrides.permissionLevel || recommendedPolicy.permissionLevel;
-
-  if (
-    proposedPermission === 'edit' &&
-    recommendedPolicy.permissionLevel === 'view' &&
-    approverRole !== 'admin'
-  ) {
-    throw new AppError('Only admin can elevate a view-only recommendation to edit', 403);
-  }
+const applyApprovalOverrides = (recommendedPolicy, overrides = {}) => {
+  const proposedPermission = recommendedPolicy.permissionLevel;
 
   const approvedExpiryHours = Number(overrides.expiryHours) || recommendedPolicy.expiryHours;
   const approvedMaxAccessAttempts =
     Number(overrides.maxAccessAttempts) || recommendedPolicy.maxAccessAttempts;
 
   const hasOverride =
-    proposedPermission !== recommendedPolicy.permissionLevel ||
     approvedExpiryHours !== recommendedPolicy.expiryHours ||
     approvedMaxAccessAttempts !== recommendedPolicy.maxAccessAttempts;
 
   const decisionSummary = hasOverride
-    ? `Approved with override: ${proposedPermission.toUpperCase()} access for ${approvedExpiryHours}h and ${approvedMaxAccessAttempts} max attempts.`
+    ? `Approved with override: bounded access for ${approvedExpiryHours}h and ${approvedMaxAccessAttempts} max attempts.`
     : recommendedPolicy.decisionSummary ||
-      `Approved as recommended: ${proposedPermission.toUpperCase()} access for ${approvedExpiryHours}h and ${approvedMaxAccessAttempts} max attempts.`;
+      `Approved as recommended: bounded access for ${approvedExpiryHours}h and ${approvedMaxAccessAttempts} max attempts.`;
 
   return {
     permissionLevel: proposedPermission,
@@ -43,6 +34,17 @@ const applyApprovalOverrides = (recommendedPolicy, overrides = {}, approverRole)
     decisionSummary,
     reviewChecklist: Array.isArray(recommendedPolicy.reviewChecklist)
       ? recommendedPolicy.reviewChecklist
+      : [],
+    recommendedControls:
+      recommendedPolicy && typeof recommendedPolicy.recommendedControls === 'object'
+        ? recommendedPolicy.recommendedControls
+        : {
+            requireTokenPassword: false,
+            maxTokenTtlMinutes: 180,
+            requireStrictAuditTrail: true
+          },
+    riskDrivers: Array.isArray(recommendedPolicy.riskDrivers)
+      ? recommendedPolicy.riskDrivers
       : [],
     uploadModuleRecommendations: Array.isArray(recommendedPolicy.uploadModuleRecommendations)
       ? recommendedPolicy.uploadModuleRecommendations
@@ -137,8 +139,7 @@ const approvePolicy = asyncHandler(async (req, res) => {
 
   const approvedPolicy = applyApprovalOverrides(
     proposal.recommendation,
-    req.body.overrides,
-    req.user.role
+    req.body.overrides
   );
 
   proposal.status = 'APPROVED';
