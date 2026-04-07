@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { apiClient, getApiBaseUrl } from './api/client';
+import { apiClient, getApiBaseUrl, isDevAuthEnabled } from './api/client';
 import { UploadDropzone } from './components/UploadDropzone';
 import { PolicyRecommendationPanel } from './components/PolicyRecommendationPanel';
 import { PolicyApprovalModal } from './components/PolicyApprovalModal';
@@ -64,6 +64,8 @@ function App() {
   }
 
   const [authToken, setAuthToken] = useState(getInitialToken);
+  const [loginEmail, setLoginEmail] = useState(import.meta.env.VITE_BOOTSTRAP_LOGIN_EMAIL || '');
+  const [loginPassword, setLoginPassword] = useState('');
   const [sharedTokenInput, setSharedTokenInput] = useState('');
   const [localFile, setLocalFile] = useState(null);
   const [fileInputError, setFileInputError] = useState('');
@@ -120,7 +122,7 @@ function App() {
       : '-';
 
   useEffect(() => {
-    if (authToken) return;
+    if (authToken || !isDevAuthEnabled) return;
 
     const bootstrapToken = async () => {
       try {
@@ -284,6 +286,25 @@ function App() {
     setStatusMessage('Opened shared file access page in a new tab.');
   };
 
+  const onBootstrapLogin = () =>
+    withActionState('bootstrap-login', async () => {
+      const email = loginEmail.trim();
+      const password = loginPassword;
+
+      if (!email) {
+        throw new Error('Bootstrap login email is required');
+      }
+
+      if (!password || password.length < 8) {
+        throw new Error('Bootstrap login password must be at least 8 characters');
+      }
+
+      const response = await apiClient.login({ email, password });
+      setAuthToken(response.token);
+      setLoginPassword('');
+      setStatusMessage('Session JWT issued successfully from bootstrap login.');
+    });
+
   const handleFileSelect = (file) => {
     setFileInputError('');
     if (!file) {
@@ -439,7 +460,41 @@ function App() {
         </section>
 
         <section className="ui-card mt-5">
-          <label className="ui-label block">Session JWT</label>
+          <div className="grid gap-3 md:grid-cols-[1fr,1fr,auto]">
+            <label className="block">
+              <span className="ui-label">Bootstrap Login Email</span>
+              <input
+                value={loginEmail}
+                onChange={(event) => setLoginEmail(event.target.value)}
+                placeholder="admin@secure-policy.local"
+                className="ui-input mt-1 text-xs"
+              />
+            </label>
+            <label className="block">
+              <span className="ui-label">Bootstrap Login Password</span>
+              <input
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                type="password"
+                minLength={8}
+                maxLength={128}
+                placeholder="Enter bootstrap password"
+                className="ui-input mt-1 text-xs"
+              />
+            </label>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={onBootstrapLogin}
+                disabled={isBusy}
+                className="ui-btn-primary w-full md:w-auto"
+              >
+                {loadingAction === 'bootstrap-login' ? 'Signing in...' : 'Get Session JWT'}
+              </button>
+            </div>
+          </div>
+
+          <label className="ui-label mt-4 block">Session JWT</label>
           <input
             value={authToken}
             onChange={(event) => setAuthToken(event.target.value)}

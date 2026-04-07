@@ -144,6 +144,7 @@ Diagram source: `docs/architecture.mmd`.
 - `POST /generate-token`
 - `POST /validate-token`
 - `POST /validate-file-token` (shared-token validation for top JWT input/new page flow)
+- `POST /auth/login` (bootstrap session JWT issuance via configured credentials)
 - `GET /auth/dev-token` (development convenience)
 
 ## Project Structure
@@ -204,11 +205,17 @@ Copy from `backend/.env.example` and set:
 - `FILE_TOKEN_SECRET`
 - `MASTER_ENCRYPTION_KEY` (64 hex chars recommended)
 - `OPENAI_API_KEY` (optional; fallback recommendation engine works without it)
+- `BOOTSTRAP_LOGIN_EMAIL`
+- `BOOTSTRAP_LOGIN_PASSWORD`
+- `BOOTSTRAP_LOGIN_ROLE` (`admin` | `editor` | `viewer`)
+- `ENABLE_DEV_AUTH_ENDPOINT` (`true` for local dev convenience, `false` for production)
 
 ### Frontend env (`frontend/.env`)
 Copy from `frontend/.env.example`:
 - `VITE_API_BASE_URL=http://localhost:5050`
 - `VITE_DEFAULT_AUTH_TOKEN=` (optional)
+- `VITE_ENABLE_DEV_AUTH=true` (set `false` in production)
+- `VITE_BOOTSTRAP_LOGIN_EMAIL=admin@secure-policy.local`
 
 ## Run Locally
 
@@ -251,7 +258,11 @@ How to deploy on Render:
 
 Notes:
 - `OPENAI_API_KEY` is optional (fallback policy engine works without it).
-- `CORS_ORIGIN=*` is preconfigured for zero-friction deployment; tighten this to your frontend URL for stricter production security.
+- `render.yaml` is hardened for deployment:
+  - backend `CORS_ORIGIN` is bound to frontend `RENDER_EXTERNAL_URL`
+  - frontend static publish path is `dist`
+  - dev-token auto-login is disabled (`ENABLE_DEV_AUTH_ENDPOINT=false`, `VITE_ENABLE_DEV_AUTH=false`)
+  - bootstrap login credentials are expected via `BOOTSTRAP_LOGIN_*` env vars
 
 ### Alternative: Frontend on Vercel + Backend on Render
 
@@ -261,7 +272,9 @@ Notes:
   - `VITE_API_BASE_URL=https://<your-render-backend-url>`
 
 ## End-to-End Usage Flow
-1. Paste or auto-issue Session JWT.
+1. Obtain Session JWT:
+   - local dev: auto-issued via `/auth/dev-token` when `VITE_ENABLE_DEV_AUTH=true`
+   - deployed/prod: use bootstrap login form (`/auth/login`) with `BOOTSTRAP_LOGIN_*` credentials
 2. Upload file + fill metadata form.
 3. Generate policy (`/generate-policy`).
 4. Confirm policy (exact AI recommendation or controlled override + approval note).

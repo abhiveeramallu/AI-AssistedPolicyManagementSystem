@@ -8,6 +8,11 @@ const toNumber = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const toBoolean = (value, fallback = false) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  return String(value).toLowerCase() === 'true';
+};
+
 const parseCsv = (value, fallback = []) => {
   if (!value) return fallback;
   return value
@@ -38,7 +43,11 @@ const env = {
   ]),
   openAiApiKey: process.env.OPENAI_API_KEY || '',
   openAiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-  openAiBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
+  openAiBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+  enableDevAuthEndpoint: toBoolean(process.env.ENABLE_DEV_AUTH_ENDPOINT, process.env.NODE_ENV !== 'production'),
+  bootstrapLoginEmail: process.env.BOOTSTRAP_LOGIN_EMAIL || 'admin@secure-policy.local',
+  bootstrapLoginPassword: process.env.BOOTSTRAP_LOGIN_PASSWORD || '',
+  bootstrapLoginRole: process.env.BOOTSTRAP_LOGIN_ROLE || 'admin'
 };
 
 module.exports = env;

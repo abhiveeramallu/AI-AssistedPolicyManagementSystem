@@ -18,7 +18,10 @@ services:
       - key: PORT
         value: "10000"
       - key: CORS_ORIGIN
-        value: "*"
+        fromService:
+          type: web
+          name: secure-policy-app
+          envVarKey: RENDER_EXTERNAL_URL
       - key: ACCESS_JWT_SECRET
         generateValue: true
       - key: ACCESS_JWT_EXPIRES_IN
@@ -43,6 +46,14 @@ services:
         value: https://api.openai.com/v1
       - key: OPENAI_API_KEY
         sync: false
+      - key: ENABLE_DEV_AUTH_ENDPOINT
+        value: "false"
+      - key: BOOTSTRAP_LOGIN_EMAIL
+        value: admin@secure-policy.local
+      - key: BOOTSTRAP_LOGIN_ROLE
+        value: admin
+      - key: BOOTSTRAP_LOGIN_PASSWORD
+        sync: false
 
   - type: web
     name: secure-policy-app
@@ -50,7 +61,7 @@ services:
     rootDir: frontend
     autoDeploy: true
     buildCommand: npm ci && npm run build
-    staticPublishPath: ./frontend/dist
+    staticPublishPath: dist
     routes:
       - type: rewrite
         source: /*
@@ -61,3 +72,7 @@ services:
           type: web
           name: secure-policy-api
           envVarKey: RENDER_EXTERNAL_URL
+      - key: VITE_ENABLE_DEV_AUTH
+        value: "false"
+      - key: VITE_BOOTSTRAP_LOGIN_EMAIL
+        value: admin@secure-policy.local

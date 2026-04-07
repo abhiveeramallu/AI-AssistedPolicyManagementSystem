@@ -74,7 +74,15 @@ const validateTokenSchema = {
   })
 };
 
+const authLoginSchema = {
+  body: z.object({
+    email: z.string().email().max(200),
+    password: z.string().min(8).max(128)
+  })
+};
+
 module.exports = {
+  authLoginSchema,
   generatePolicySchema,
   approvePolicySchema,
   uploadSchema,

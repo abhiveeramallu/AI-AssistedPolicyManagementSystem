@@ -1,5 +1,6 @@
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim();
 const TOKEN_STORAGE_KEY = 'secure-policy-user-token';
+const isDevAuthEnabled = String(import.meta.env.VITE_ENABLE_DEV_AUTH || '').toLowerCase() === 'true';
 
 const inferHost = () => {
   if (typeof window === 'undefined') return 'localhost';
@@ -126,7 +127,7 @@ const request = async ({ path, method = 'GET', body, token, extraHeaders = {}, i
     }
   }
 
-  if (response.status === 401 && token) {
+  if (isDevAuthEnabled && response.status === 401 && token) {
     try {
       const refreshResponse = await fetch(`${getApiBaseUrl()}/auth/dev-token`);
       if (refreshResponse.ok) {
@@ -176,6 +177,7 @@ const request = async ({ path, method = 'GET', body, token, extraHeaders = {}, i
 };
 
 export const apiClient = {
+  login: (credentials) => request({ path: '/auth/login', method: 'POST', body: credentials }),
   fetchDevToken: () => request({ path: '/auth/dev-token', method: 'GET' }),
   generatePolicy: (token, data) => request({ path: '/generate-policy', method: 'POST', body: data, token }),
   approvePolicy: (token, data) => request({ path: '/approve-policy', method: 'POST', body: data, token }),
@@ -238,4 +240,4 @@ export const apiClient = {
   }
 };
 
-export { API_BASE_URL, getApiBaseUrl };
+export { API_BASE_URL, getApiBaseUrl, isDevAuthEnabled };
