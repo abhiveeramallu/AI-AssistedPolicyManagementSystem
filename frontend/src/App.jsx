@@ -11,15 +11,13 @@ import { EncryptedFileList } from './components/EncryptedFileList';
 import { TokenStatusView } from './components/TokenStatusView';
 import { SharedTokenAccessPage } from './components/SharedTokenAccessPage';
 import { AuthPage } from './components/AuthPage';
-import { UserFileAccessPanel } from './components/UserFileAccessPanel';
-import { FilePreviewModal } from './components/FilePreviewModal';
 
 const TOKEN_STORAGE_KEY = 'secure-policy-user-token';
 
 const NAV_SECTIONS = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'policies', label: 'Policies' },
-  { id: 'tokens', label: 'Tokens' }
+  { id: 'tokens', label: 'Shares' }
 ];
 
 const policyFormSchema = z.object({
@@ -67,7 +65,6 @@ const getSharedAccessFromUrl = () => {
   };
 };
 
-const isValidObjectId = (value) => /^[a-fA-F0-9]{24}$/.test(String(value || '').trim());
 const sanitizeAccessText = (value) =>
   String(value || '')
     .replace(/\bview\b/gi, 'restricted')
@@ -103,20 +100,11 @@ function App() {
   const [files, setFiles] = useState([]);
   const [selectedStoredFile, setSelectedStoredFile] = useState(null);
   const [generatedToken, setGeneratedToken] = useState('');
-  const [generatedShareRef, setGeneratedShareRef] = useState('');
   const [generatedShareLink, setGeneratedShareLink] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [loadingAction, setLoadingAction] = useState('');
   const [activeSection, setActiveSection] = useState('dashboard');
-
-  const [ownerLookupId, setOwnerLookupId] = useState('');
-  const [ownerLookupFiles, setOwnerLookupFiles] = useState([]);
-  const [ownerLookupLoading, setOwnerLookupLoading] = useState(false);
-  const [ownerLookupError, setOwnerLookupError] = useState('');
-  const [ownerLookupStatus, setOwnerLookupStatus] = useState('');
-  const [ownerOpeningTokenId, setOwnerOpeningTokenId] = useState('');
-  const [sharedPreview, setSharedPreview] = useState(null);
 
   const {
     register,
@@ -192,14 +180,6 @@ function App() {
       cancelled = true;
     };
   }, [authToken]);
-
-  useEffect(() => {
-    return () => {
-      if (sharedPreview?.url) {
-        URL.revokeObjectURL(sharedPreview.url);
-      }
-    };
-  }, [sharedPreview]);
 
   const clearMessages = () => {
     setErrorMessage('');
@@ -304,17 +284,7 @@ function App() {
     setApprovedPolicy(null);
     setSelectedStoredFile(null);
     setGeneratedToken('');
-    setGeneratedShareRef('');
     setGeneratedShareLink('');
-    setOwnerLookupId('');
-    setOwnerLookupFiles([]);
-    setOwnerLookupError('');
-    setOwnerLookupStatus('');
-
-    if (sharedPreview?.url) {
-      URL.revokeObjectURL(sharedPreview.url);
-    }
-    setSharedPreview(null);
 
     setFiles([]);
     setStatusMessage('Signed out.');
@@ -384,16 +354,13 @@ function App() {
     withActionState('generate-token', async () => {
       const response = await apiClient.generateFileToken(authToken, payload);
       setGeneratedToken(response.token);
-
-      const shareRef = response.shareRef || '';
       const shareLink =
         response.shareId && response.shareCode
           ? `${window.location.origin}${window.location.pathname}?share_id=${encodeURIComponent(response.shareId)}&share_code=${encodeURIComponent(response.shareCode)}`
           : '';
 
-      setGeneratedShareRef(shareRef);
       setGeneratedShareLink(shareLink);
-      setStatusMessage('Share access generated. Use Share Link or Share Ref only.');
+      setStatusMessage('Share access generated. Send the share link to the recipient.');
     });
 
   const onDeleteFile = (id) =>
@@ -418,130 +385,6 @@ function App() {
     }
 
     setLocalFile(file);
-  };
-
-  const openSharedBlobWithPermission = async ({ claims, accessToken, password }) => {
-    const fileId = claims?.fileId;
-    const permissionLevel = String(claims?.permissionLevel || 'view').toLowerCase();
-
-    if (!fileId) {
-      throw new Error('Unable to resolve shared file id');
-    }
-
-    const accessResponse = await apiClient.accessFileWithToken({
-      fileId,
-      token: accessToken,
-      preview: permissionLevel === 'view',
-      password
-    });
-
-    if (permissionLevel === 'edit') {
-      const downloadUrl = URL.createObjectURL(accessResponse.blob);
-      const anchor = document.createElement('a');
-      anchor.href = downloadUrl;
-      anchor.download = accessResponse.filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(downloadUrl);
-      return {
-        mode: 'download',
-        filename: accessResponse.filename
-      };
-    }
-
-    if (sharedPreview?.url) {
-      URL.revokeObjectURL(sharedPreview.url);
-    }
-
-    const previewUrl = URL.createObjectURL(accessResponse.blob);
-    const previewPayload = {
-      url: previewUrl,
-      filename: accessResponse.filename,
-      mimeType: accessResponse.mimeType,
-      textContent: ''
-    };
-
-    if ((accessResponse.mimeType || '').startsWith('text/')) {
-      previewPayload.textContent = await accessResponse.blob.text();
-    }
-
-    setSharedPreview(previewPayload);
-    return {
-      mode: 'preview',
-      filename: accessResponse.filename
-    };
-  };
-
-  const onDiscoverOwnerFiles = async () => {
-    setOwnerLookupError('');
-    setOwnerLookupStatus('');
-
-    const trimmedOwnerId = ownerLookupId.trim();
-    if (!isValidObjectId(trimmedOwnerId)) {
-      setOwnerLookupError('Enter a valid owner user ID (24-character id).');
-      return;
-    }
-
-    setOwnerLookupLoading(true);
-
-    try {
-      const response = await apiClient.discoverOwnerFiles(authToken, {
-        ownerId: trimmedOwnerId
-      });
-
-      setOwnerLookupFiles(response.files || []);
-      setOwnerLookupStatus(`${(response.files || []).length} file(s) available for access.`);
-    } catch (error) {
-      setOwnerLookupError(error.message || 'Unable to discover shared files for this owner.');
-      setOwnerLookupFiles([]);
-    } finally {
-      setOwnerLookupLoading(false);
-    }
-  };
-
-  const onOpenOwnerFile = async (file, password) => {
-    setOwnerLookupError('');
-    setOwnerLookupStatus('');
-
-    const trimmedOwnerId = ownerLookupId.trim();
-    const trimmedPassword = String(password || '').trim();
-
-    if (!isValidObjectId(trimmedOwnerId)) {
-      setOwnerLookupError('Enter a valid owner user ID before opening file.');
-      return;
-    }
-
-    if (file.requiresPassword && trimmedPassword.length < 6) {
-      setOwnerLookupError('This file requires password (minimum 6 characters).');
-      return;
-    }
-
-    setOwnerOpeningTokenId(file.tokenId);
-
-    try {
-      const opened = await apiClient.openOwnerFile(authToken, {
-        ownerId: trimmedOwnerId,
-        tokenId: file.tokenId,
-        password: trimmedPassword || undefined
-      });
-
-      const result = await openSharedBlobWithPermission({
-        claims: opened.claims,
-        accessToken: opened.token,
-        password: trimmedPassword || undefined
-      });
-
-      if (result.mode === 'download') {
-        setOwnerLookupStatus(`Downloaded: ${result.filename}`);
-      } else {
-        setOwnerLookupStatus(`Opened preview: ${result.filename}`);
-      }
-    } catch (error) {
-      setOwnerLookupError(error.message || 'Unable to open shared file.');
-    } finally {
-      setOwnerOpeningTokenId('');
-    }
   };
 
   if (!authToken) {
@@ -614,7 +457,7 @@ function App() {
                 ? 'Dashboard Overview'
                 : activeSection === 'policies'
                   ? 'Policy Intelligence'
-                  : 'Token Intelligence'}
+                  : 'Share Intelligence'}
             </h2>
             <span className="ui-badge">{activeSection}</span>
           </div>
@@ -636,9 +479,9 @@ function App() {
                 </p>
               </div>
               <div className="ui-card-soft">
-                <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Token Status</p>
+                <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Share Status</p>
                 <p className="mt-1 text-sm font-semibold text-[color:var(--ui-text)]">
-                  {generatedShareLink || generatedShareRef
+                  {generatedShareLink
                     ? 'Share access configured for selected file'
                     : 'No share access generated in this session'}
                 </p>
@@ -694,7 +537,7 @@ function App() {
                 <p className="mt-1 text-sm font-semibold text-[color:var(--ui-accent)]">Auto Derived</p>
               </div>
               <div className="ui-card-soft">
-                <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Token Expiry</p>
+                <p className="ui-text-muted text-xs uppercase tracking-[0.12em]">Share Link Expiry</p>
                 <p className="mt-1 text-sm font-semibold text-[color:var(--ui-text)]">
                   {generatedTokenClaims?.exp
                     ? new Date(generatedTokenClaims.exp * 1000).toLocaleString()
@@ -716,18 +559,6 @@ function App() {
             </div>
           ) : null}
         </section>
-
-        <UserFileAccessPanel
-          ownerId={ownerLookupId}
-          onOwnerIdChange={setOwnerLookupId}
-          onDiscover={onDiscoverOwnerFiles}
-          discovering={ownerLookupLoading}
-          files={ownerLookupFiles}
-          onOpenFile={onOpenOwnerFile}
-          openingTokenId={ownerOpeningTokenId}
-          errorMessage={ownerLookupError}
-          statusMessage={ownerLookupStatus}
-        />
 
         {errorMessage ? (
           <div className="ui-alert-error mt-4">{errorMessage}</div>
@@ -861,7 +692,6 @@ function App() {
               selectedFile={selectedStoredFile}
               onGenerate={onGenerateToken}
               generatedToken={generatedToken}
-              generatedShareRef={generatedShareRef}
               generatedShareLink={generatedShareLink}
               loading={isBusy}
             />
@@ -875,16 +705,6 @@ function App() {
         onClose={() => setApprovalModalOpen(false)}
         onConfirm={onApprovePolicy}
         loading={loadingAction === 'approve-policy'}
-      />
-
-      <FilePreviewModal
-        preview={sharedPreview}
-        onClose={() => {
-          if (sharedPreview?.url) {
-            URL.revokeObjectURL(sharedPreview.url);
-          }
-          setSharedPreview(null);
-        }}
       />
     </div>
   );

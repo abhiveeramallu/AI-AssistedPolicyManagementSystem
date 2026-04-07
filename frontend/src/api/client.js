@@ -194,10 +194,6 @@ export const apiClient = {
     request({ path: '/validate-file-token', method: 'POST', body: data }),
   resolveShareAccess: (data) =>
     request({ path: '/resolve-share-access', method: 'POST', body: data }),
-  discoverOwnerFiles: (token, data) =>
-    request({ path: '/discover-owner-files', method: 'POST', body: data, token }),
-  openOwnerFile: (token, data) =>
-    request({ path: '/open-owner-file', method: 'POST', body: data, token }),
   deleteFile: (token, id) => request({ path: `/file/${id}`, method: 'DELETE', token }),
   accessFileWithToken: async ({ fileId, token, preview = false, password }) => {
     let response;

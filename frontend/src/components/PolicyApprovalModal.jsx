@@ -52,7 +52,7 @@ export const PolicyApprovalModal = ({ isOpen, recommendation, onClose, onConfirm
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(10,10,10,0.82)] p-4">
-      <div className="w-full max-w-2xl rounded-lg border border-[color:var(--ui-border)] bg-[color:var(--ui-surface)] p-6 shadow-panel">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[color:var(--ui-border)] bg-[color:var(--ui-surface)] p-6 shadow-panel">
         <h3 className="ui-title text-xl font-bold">Confirm AI Policy</h3>
         <p className="ui-text-muted mt-1 text-sm">
           Review and approve recommendation before secure enforcement.

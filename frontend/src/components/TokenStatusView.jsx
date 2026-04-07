@@ -4,7 +4,6 @@ export const TokenStatusView = ({
   selectedFile,
   onGenerate,
   generatedToken,
-  generatedShareRef,
   generatedShareLink,
   loading
 }) => {
@@ -39,9 +38,9 @@ export const TokenStatusView = ({
 
   useEffect(() => {
     setCopyStatus('');
-  }, [generatedShareRef, generatedShareLink, generatedToken]);
+  }, [generatedShareLink, generatedToken]);
 
-  const handleGenerateToken = () => {
+  const handleGenerateShareLink = () => {
     setLocalError('');
 
     const parsedExpiry = Number.parseInt(String(expiryMinutes), 10);
@@ -86,9 +85,9 @@ export const TokenStatusView = ({
 
   return (
     <div className="ui-card">
-      <h3 className="ui-title text-lg font-bold">Token Status</h3>
+      <h3 className="ui-title text-lg font-bold">Share Access</h3>
       <p className="ui-text-muted mt-1 text-sm">
-        Generate a token for the selected encrypted file.
+        Generate a secure share link for the selected encrypted file.
       </p>
 
       {selectedFile ? (
@@ -154,61 +153,41 @@ export const TokenStatusView = ({
       <button
         disabled={!selectedFile || loading}
         type="button"
-        onClick={handleGenerateToken}
+        onClick={handleGenerateShareLink}
         className="ui-btn-primary mt-4"
       >
-        {loading ? 'Processing...' : 'Generate token'}
+        {loading ? 'Processing...' : 'Generate share link'}
       </button>
 
       {localError ? (
         <p className="ui-alert-error mt-2 text-xs">{localError}</p>
       ) : null}
 
-      {generatedToken || generatedShareRef || generatedShareLink ? (
+      {generatedToken || generatedShareLink ? (
         <div className="ui-card-soft mt-4">
           <p className="ui-text-muted text-xs font-semibold uppercase tracking-[0.14em]">
             Share Access Ready
           </p>
           <p className="ui-text-muted mt-1 text-xs">
-            Token is handled internally. Share these details with recipient:
+            Token is handled internally. Share this link with recipient:
           </p>
 
-          {generatedShareRef || generatedShareLink ? (
+          {generatedShareLink ? (
             <div className="mt-3 rounded-md border border-[color:var(--ui-border)] bg-[color:var(--ui-surface)] p-3">
               <p className="ui-text-muted text-xs font-semibold uppercase tracking-[0.14em]">
-                Friendly Share Access
+                Share Link
               </p>
-              {generatedShareRef ? (
-                <div className="mt-2">
-                  <p className="ui-text-muted text-[11px]">Share Ref (tokenId:code)</p>
-                  <p className="mt-1 break-all text-xs text-[color:var(--ui-text)]">{generatedShareRef}</p>
-                </div>
-              ) : null}
-              {generatedShareLink ? (
-                <div className="mt-2">
-                  <p className="ui-text-muted text-[11px]">Share Link</p>
-                  <p className="mt-1 break-all text-xs text-[color:var(--ui-text)]">{generatedShareLink}</p>
-                </div>
-              ) : null}
+              <div className="mt-2">
+                <p className="mt-1 break-all text-xs text-[color:var(--ui-text)]">{generatedShareLink}</p>
+              </div>
               <div className="mt-3 flex gap-2">
-                {generatedShareLink ? (
-                  <button
-                    type="button"
-                    onClick={() => copyToClipboard(generatedShareLink)}
-                    className="ui-btn-secondary"
-                  >
-                    Copy link
-                  </button>
-                ) : null}
-                {generatedShareRef ? (
-                  <button
-                    type="button"
-                    onClick={() => copyToClipboard(generatedShareRef)}
-                    className="ui-btn-secondary"
-                  >
-                    Copy ref
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(generatedShareLink)}
+                  className="ui-btn-secondary"
+                >
+                  Copy link
+                </button>
               </div>
               {copyStatus ? (
                 <p className="ui-text-muted mt-2 text-xs">{copyStatus}</p>
@@ -217,7 +196,7 @@ export const TokenStatusView = ({
           ) : null}
 
           <p className="ui-text-muted mt-2 text-xs">
-            Recipient logs in, enters owner ID, and unlocks the file using this password (if required).
+            Recipient opens the link and unlocks the file with password (if required).
           </p>
         </div>
       ) : null}
